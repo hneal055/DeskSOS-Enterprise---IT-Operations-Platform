@@ -1,222 +1,464 @@
-# DESKSOS Production Deployment - Documentation Index
+# DeskSOS Enterprise - IT Operations Platform
 
-## 📖 Documentation Files
+![Version](https://img.shields.io/badge/version-1.0.0-blue)
+![Node.js](https://img.shields.io/badge/Node.js-22-green)
+![React](https://img.shields.io/badge/React-18.3-61dafb)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue)
+![Redis](https://img.shields.io/badge/Redis-7-red)
+![Docker](https://img.shields.io/badge/Docker-ready-blue)
 
-### 1. **QUICK_START.md** ⚡ START HERE
-Quick-reference guide with:
-- Pre-deployment checklist
-- 3-step deployment process
-- Verification commands
-- Troubleshooting guide
-- Common commands table
+Full-stack enterprise web platform for IT operations teams. Built with Node.js, React, PostgreSQL, and Redis. Features real-time collaboration, ticketing system, chat, and comprehensive dashboard.
 
-**Use when:** You need a quick reference for deployment commands
+## 🌐 Overview
+
+DeskSOS Enterprise is a comprehensive web-based platform for managing IT support operations at scale. Designed for teams that need centralized ticketing, real-time collaboration, and operational visibility.
+
+**Perfect for:**
+- IT Operations teams managing enterprise infrastructure
+- Help Desk departments with distributed technicians
+- MSP (Managed Service Provider) operations
+- Multi-site IT support coordination
+
+## ✨ Key Features
+
+### 📊 Operations Dashboard
+- Real-time metrics and KPIs
+- Ticket status visualization
+- Team performance analytics
+- System health monitoring
+- Customizable widgets
+
+### 🎫 Ticketing System
+- Create, assign, and track support tickets
+- Priority and category management
+- Status workflows (Open → In Progress → Resolved → Closed)
+- Attachment support
+- Comment threads
+- Email notifications
+
+### 💬 Team Chat
+- Real-time messaging with WebSocket
+- Channel-based organization
+- User presence indicators (online/offline/away)
+- Typing indicators
+- Message history
+- @mentions and notifications
+
+### 👥 User Management
+- Role-based access control (Admin, Technician, User)
+- User authentication with JWT
+- Profile management
+- Activity tracking
+- Audit logs
+
+### 🔔 Notifications
+- Real-time push notifications
+- Email alerts
+- Ticket assignments
+- Status updates
+- System announcements
+
+## 🚀 Quick Start
+
+### Development Mode
+
+```bash
+# Clone repository
+git clone https://github.com/hneal055/DeskSOS-Enterprise---IT-Operations-Platform.git
+cd DeskSOS-Enterprise---IT-Operations-Platform
+
+# Start with Docker Compose
+docker-compose up --build
+
+# Access application
+# Frontend: http://localhost:3000
+# Backend API: http://localhost:5000
+# API Docs: http://localhost:5000/
+```
+
+### Production Deployment
+
+```bash
+# Build production containers
+docker-compose -f docker-compose.prod.yml build
+
+# Start production stack
+docker-compose -f docker-compose.prod.yml up -d
+
+# Access via Nginx (with SSL)
+# https://your-domain.com
+```
+
+## 📋 System Requirements
+
+### For Docker Deployment
+
+| Component | Requirement |
+|-----------|-------------|
+| **Docker** | 20.10+ |
+| **Docker Compose** | 2.0+ |
+| **RAM** | 4 GB minimum (8 GB recommended) |
+| **Disk Space** | 10 GB for images and data |
+| **CPU** | 2 cores minimum (4 cores recommended) |
+
+### For Manual Deployment
+
+| Component | Version |
+|-----------|---------|
+| **Node.js** | 22+ |
+| **PostgreSQL** | 16+ |
+| **Redis** | 7+ |
+| **Nginx** | 1.24+ (optional, for reverse proxy) |
+
+## 🏗️ Architecture
+
+```
+┌─────────────────────────────────────────────────────┐
+│                  Nginx (SSL/TLS)                    │
+│              Reverse Proxy & Load Balancer          │
+└─────────────────────┬───────────────────────────────┘
+                      │
+        ┌─────────────┴──────────────┐
+        │                            │
+┌───────▼────────┐          ┌────────▼────────┐
+│  React Client  │          │  Express Server │
+│   (Port 3000)  │◄────────►│   (Port 5000)   │
+│                │ WebSocket│                 │
+│  - Dashboard   │ Socket.io│  - REST API     │
+│  - Chat UI     │          │  - WebSocket    │
+│  - Ticketing   │          │  - Auth/JWT     │
+└────────────────┘          └─────┬───┬───────┘
+                                  │   │
+                      ┌───────────┘   └─────────┐
+                      │                          │
+              ┌───────▼────────┐        ┌───────▼──────┐
+              │   PostgreSQL   │        │    Redis     │
+              │   (Port 5432)  │        │  (Port 6379) │
+              │                │        │              │
+              │  - Users       │        │  - Sessions  │
+              │  - Tickets     │        │  - Cache     │
+              │  - Messages    │        │  - Pub/Sub   │
+              └────────────────┘        └──────────────┘
+```
+
+## 🛠️ Technology Stack
+
+### Frontend
+- **React 18.3** - UI library
+- **TypeScript** - Type safety
+- **Vite 6.4** - Build tool
+- **Tailwind CSS** - Styling
+- **TanStack Query** - Data fetching
+- **Socket.io Client** - WebSocket communication
+
+### Backend
+- **Node.js 22** - Runtime
+- **Express 4.21** - Web framework
+- **TypeScript** - Type safety
+- **Socket.io 4.8** - WebSocket server
+- **JWT** - Authentication
+- **Bcrypt** - Password hashing
+
+### Database & Cache
+- **PostgreSQL 16** - Primary database
+- **Redis 7** - Caching and pub/sub
+- **node-postgres (pg)** - PostgreSQL client
+
+### Infrastructure
+- **Docker & Docker Compose** - Containerization
+- **Nginx** - Reverse proxy and SSL termination
+- **PM2** - Process management (optional)
+
+## 📦 Project Structure
+
+```
+DESKSOS-ENTERPRISE/
+├── client/                       # React frontend
+│   ├── src/
+│   │   ├── components/          # UI components
+│   │   ├── pages/               # Page components
+│   │   ├── services/            # API clients
+│   │   ├── hooks/               # Custom React hooks
+│   │   ├── store/               # State management
+│   │   └── App.tsx              # Root component
+│   ├── package.json
+│   └── vite.config.ts
+├── server/                       # Node.js backend
+│   ├── src/
+│   │   ├── routes/              # API routes
+│   │   │   ├── auth.ts
+│   │   │   ├── dashboard.ts
+│   │   │   ├── chat.ts
+│   │   │   └── user.ts
+│   │   ├── services/            # Business logic
+│   │   │   ├── socket.ts        # WebSocket handling
+│   │   │   └── auth.ts
+│   │   ├── config/              # Configuration
+│   │   │   ├── database.ts
+│   │   │   └── index.ts
+│   │   └── index.ts             # Entry point
+│   ├── package.json
+│   └── tsconfig.json
+├── database/                     # Database migrations
+│   └── init.sql
+├── nginx/                        # Nginx configuration
+│   ├── nginx.conf
+│   └── ssl/                      # SSL certificates
+├── docker-compose.yml           # Development
+├── docker-compose.prod.yml      # Production
+├── .env.example                 # Environment template
+├── .env.production              # Production config
+└── README.md                    # This file
+```
+
+## 🔧 Configuration
+
+### Environment Variables
+
+Create `.env` file:
+
+```bash
+# Database
+DB_HOST=postgres
+DB_PORT=5432
+DB_NAME=desksos_db
+DB_USER=desksos_user
+DB_PASSWORD=your-secure-password
+
+# Redis
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_PASSWORD=your-redis-password
+
+# JWT
+JWT_SECRET=your-super-secret-jwt-key-change-in-production
+
+# API
+NODE_ENV=production
+PORT=5000
+API_BASE_URL=http://nginx/api
+WS_URL=ws://localhost/socket.io
+
+# Email (SMTP)
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=notifications@company.com
+SMTP_PASSWORD=your-smtp-password
+SMTP_FROM=noreply@desksos.com
+```
+
+## 🚀 Deployment
+
+### Docker Compose (Recommended)
+
+**Development:**
+```bash
+docker-compose up --build
+```
+
+**Production:**
+```bash
+# Build images
+docker-compose -f docker-compose.prod.yml build
+
+# Start services
+docker-compose -f docker-compose.prod.yml up -d
+
+# View logs
+docker-compose -f docker-compose.prod.yml logs -f
+
+# Stop services
+docker-compose -f docker-compose.prod.yml down
+```
+
+### Manual Deployment
+
+**1. Install Dependencies**
+```bash
+# Backend
+cd server
+npm install
+npm run build
+
+# Frontend
+cd ../client
+npm install
+npm run build
+```
+
+**2. Setup Database**
+```bash
+# Create PostgreSQL database
+createdb desksos_db
+
+# Run migrations
+psql desksos_db < database/init.sql
+```
+
+**3. Start Services**
+```bash
+# Redis
+redis-server
+
+# Backend (with PM2)
+cd server
+pm2 start dist/index.js --name desksos-api
+
+# Frontend (via Nginx)
+# Configure Nginx to serve client/dist/
+```
+
+## 📡 API Documentation
+
+### REST Endpoints
+
+**Authentication:**
+- `POST /api/auth/login` - User login
+- `POST /api/auth/register` - User registration
+- `POST /api/auth/logout` - User logout
+
+**Dashboard:**
+- `GET /api/dashboard` - Get dashboard data
+- `GET /api/dashboard/metrics` - Get system metrics
+
+**Chat:**
+- `GET /api/chat/channels` - List channels
+- `GET /api/chat/channels/:id/messages` - Get messages
+- `POST /api/chat/channels/:id/messages` - Send message
+
+**User:**
+- `GET /api/user/me` - Get current user profile
+- `PUT /api/user/me` - Update profile
+
+### WebSocket Events
+
+**Client → Server:**
+- `user:join` - User joins platform
+- `message:send` - Send chat message
+- `user:typing` - User is typing
+
+**Server → Client:**
+- `message:new` - New message received
+- `presence:update` - User presence changed
+- `notification:new` - New notification
+
+## 🧪 Testing
+
+```bash
+# Backend tests
+cd server
+npm test
+
+# Frontend tests
+cd client
+npm test
+
+# E2E tests
+npm run test:e2e
+
+# Coverage
+npm run test:coverage
+```
+
+## 🔐 Security
+
+- **JWT Authentication** - Secure token-based auth
+- **Password Hashing** - Bcrypt with salt
+- **SQL Injection Protection** - Parameterized queries
+- **XSS Prevention** - Input sanitization
+- **CORS Configuration** - Controlled origins
+- **Rate Limiting** - API throttling
+- **SSL/TLS** - HTTPS encryption
+- **Environment Variables** - Sensitive data protection
+
+## 📊 Monitoring
+
+**Logs:**
+```bash
+# Application logs
+docker-compose logs -f server
+
+# Nginx access logs
+docker-compose logs -f nginx
+
+# Database logs
+docker-compose logs -f postgres
+```
+
+**Health Checks:**
+- Backend: `http://localhost:5000/health`
+- Database: `docker exec postgres pg_isready`
+- Redis: `docker exec redis redis-cli ping`
+
+## 🚧 Roadmap
+
+- [x] Core ticketing system
+- [x] Real-time chat
+- [x] User authentication
+- [x] Dashboard analytics
+- [ ] Advanced reporting
+- [ ] Mobile app (React Native)
+- [ ] Integrations (Slack, Teams, Jira)
+- [ ] AI-powered ticket routing
+- [ ] Knowledge base module
+- [ ] Self-service portal
+- [ ] Multi-language support
+- [ ] Custom workflows
+
+## 🤝 Contributing
+
+Contributions welcome! Please follow these guidelines:
+
+1. Fork the repository
+2. Create feature branch (`git checkout -b feature/NewFeature`)
+3. Commit changes (`git commit -m 'Add NewFeature'`)
+4. Push to branch (`git push origin feature/NewFeature`)
+5. Open Pull Request
+
+### Code Style
+
+- **TypeScript** - Strict mode enabled
+- **ESLint** - Airbnb config
+- **Prettier** - Code formatting
+- **Conventional Commits** - Commit message format
+
+## 📝 License
+
+This project is proprietary software for internal use only.
+
+**© 2026 DeskSOS Team. All rights reserved.**
+
+## 👥 Authors
+
+- **DeskSOS Team** - Initial development
+
+## 🐛 Bug Reports & Feature Requests
+
+Found a bug or have a feature request?
+
+- **GitHub Issues:** [Open an issue](https://github.com/hneal055/DeskSOS-Enterprise---IT-Operations-Platform/issues)
+- **Email:** support@desksos.com
+
+Please include:
+- Clear description
+- Steps to reproduce (for bugs)
+- Expected vs actual behavior
+- Screenshots/logs if applicable
+- Environment details (browser, OS, Docker version)
+
+## 💬 Support
+
+- **Documentation:** [Wiki](https://github.com/hneal055/DeskSOS-Enterprise---IT-Operations-Platform/wiki)
+- **Email:** support@desksos.com
+- **Chat:** Internal Slack channel
+
+## 🙏 Acknowledgments
+
+- Built with [Express](https://expressjs.com/)
+- Real-time powered by [Socket.io](https://socket.io/)
+- UI built with [React](https://react.dev/)
+- Containerized with [Docker](https://www.docker.com/)
 
 ---
 
-### 2. **DEPLOYMENT.md** 📚 DEEP DIVE
-Comprehensive 2000+ line guide covering:
-- System architecture overview
-- Complete directory structure
-- Step-by-step deployment with explanations
-- Health check procedures
-- Database operations
-- Logging and monitoring
-- Troubleshooting with solutions
-- Maintenance workflows
-- Performance tuning
-- Security best practices
-
-**Use when:** You need detailed information about any aspect of deployment
-
----
-
-### 3. **DEPLOYMENT_STATUS.md** 📊 PROJECT STATUS
-Current project progress tracking:
-- 85% completion status
-- What's been completed
-- What's partially done
-- What's pending
-- Files created this session
-- Next session priorities
-- Expected performance metrics
-
-**Use when:** You need to understand overall progress and what's next
-
----
-
-## 🐳 Docker Configuration Files
-
-### **docker-compose.prod.yml**
-Production orchestration with:
-- PostgreSQL 15-alpine (database)
-- Redis 7-alpine (caching)
-- Node.js backend on port 5000
-- React frontend on port 3000
-- Nginx reverse proxy on ports 80/443
-- Health checks on all services
-- Environment variable substitution
-- Restart policies and volume persistence
-
-**Used by:** \docker-compose -f docker-compose.prod.yml [command]\
-
----
-
-### **Dockerfile Files**
-Two multi-stage Dockerfiles:
-1. **server/Dockerfile** - Node.js backend compilation
-2. **renderer/server/src/routes/client/Dockerfile** - React frontend build
-
-Both use alpine images for minimal size and fast startup.
-
----
-
-## 🔧 WebServer Configuration
-
-### **nginx/nginx.conf**
-Main Nginx configuration with:
-- Worker process optimization
-- Performance tuning (sendfile, TCP optimization)
-- Gzip compression settings
-- Logging configuration
-
-### **nginx/conf.d/default.conf**
-Site-specific configuration with:
-- SSL/TLS 1.2+ encryption
-- HTTP → HTTPS redirect
-- Security headers
-- Rate limiting (10 req/s API, 30 req/s general)
-- Upstream routing to backend/frontend
-- WebSocket support
-- Static asset caching
-
----
-
-## 🔐 Environment & Secrets
-
-### **.env.production**
-Production environment variables (NEVER COMMIT):
-- Database credentials
-- Redis authentication
-- JWT signing secrets
-- Application settings
-- CORS configuration
-- Session timeouts
-
-### **.gitignore**
-Git security rules preventing:
-- .env files from being committed
-- SSL certificates from being committed
-- build artifacts
-- node_modules
-- IDE files
-- Logs and temporary files
-
----
-
-## 🚀 Scripts
-
-### **scripts/generate-ssl.sh**
-Automated SSL certificate generation:
-- Creates self-signed certificates if not present
-- Valid for 365 days
-- Uses OpenSSL (must run in Docker)
-- Creates files in ./ssl/ directory
-
----
-
-## 📋 Quick Command Reference
-
-| Task | Command |
-|------|---------|
-| **Build Images** | \docker-compose -f docker-compose.prod.yml build\ |
-| **Start Services** | \docker-compose -f docker-compose.prod.yml up -d\ |
-| **Stop Services** | \docker-compose -f docker-compose.prod.yml down\ |
-| **View Status** | \docker-compose -f docker-compose.prod.yml ps\ |
-| **View Logs** | \docker-compose -f docker-compose.prod.yml logs -f\ |
-| **Execute Command** | \docker-compose -f docker-compose.prod.yml exec [service] [cmd]\ |
-| **Test Frontend** | \curl http://localhost/\ |
-| **Test API** | \curl http://localhost/api/dashboard\ |
-
----
-
-## 🎯 Recommended Reading Order
-
-**For First-Time Deployment:**
-1. Start with **QUICK_START.md** (5 min read)
-2. Review **docker-compose.prod.yml** (understand services)
-3. Check **.env.production** (ensure secrets are unique)
-4. Execute: \docker-compose -f docker-compose.prod.yml build\
-5. Execute: \docker-compose -f docker-compose.prod.yml up -d\
-
-**For Troubleshooting:**
-1. Go to **QUICK_START.md** → Troubleshooting section
-2. Reference **DEPLOYMENT.md** → Troubleshooting section
-3. Check service logs: \docker-compose logs [service]\
-
-**For Understanding Architecture:**
-1. Review **DEPLOYMENT.md** → Architecture Overview
-2. Study **docker-compose.prod.yml** layout
-3. Examine **nginx/conf.d/default.conf** routing
-
-**For Maintenance Tasks:**
-1. Refer to **DEPLOYMENT.md** → Maintenance section
-2. Use common commands from this index
-
----
-
-## 📈 System Status
-
-- **Completion:** 85%
-- **Frontend:** ✅ Multi-stage Docker build ready
-- **Backend:** ✅ Containerized and tested
-- **Database:** ✅ PostgreSQL configuration ready
-- **Caching:** ✅ Redis configuration ready
-- **WebServer:** ✅ Nginx SSL/TLS configured
-- **Deployment:** ✅ Docker Compose production setup
-
----
-
-## 🔐 Security Checklist
-
-Before production deployment, ensure:
-- [ ] Generate unique DB_PASSWORD (32+ chars)
-- [ ] Generate unique REDIS_PASSWORD (32+ chars)
-- [ ] Generate unique JWT_SECRET (64+ chars)
-- [ ] Update CORS_ORIGIN to real domain
-- [ ] Replace self-signed SSL with Let's Encrypt
-- [ ] Review security headers in nginx config
-- [ ] Enable rate limiting (already configured)
-- [ ] Setup monitoring/alerts (future)
-
----
-
-## 📞 Support Resources
-
-- **Docker Documentation:** https://docs.docker.com/
-- **Docker Compose Reference:** https://docs.docker.com/compose/
-- **Nginx Configuration:** https://nginx.org/en/docs/
-- **Let's Encrypt SSL:** https://letsencrypt.org/
-- **OpenSSL Documentation:** https://www.openssl.org/
-
----
-
-## 📝 File Locations
-
-| File | Location |
-|------|----------|
-| Docker Compose | \./docker-compose.prod.yml\ |
-| Nginx Config | \./nginx/nginx.conf\ |
-| Site Config | \./nginx/conf.d/default.conf\ |
-| Production Env | \./.env.production\ |
-| Backend Docker | \./server/Dockerfile\ |
-| Frontend Docker | \C:\Projects\DESKSOS\renderer\server\src\routes\client\Dockerfile\ |
-| SSL Script | \./scripts/generate-ssl.sh\ |
-| SSL Certs | \./ssl/cert.pem\ and \./ssl/key.pem\ |
-| Git Security | \./.gitignore\ |
-
----
-
-**Last Updated:** 2026-02-24
-
-**Status:** Production deployment infrastructure 85% complete and ready for Docker testing.
+**Made with ❤️ for IT Operations Teams**
