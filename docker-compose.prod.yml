@@ -68,7 +68,7 @@ services:
 
   client:
     build:
-      context: ./server/src/routes/client
+      context: ../DESKSOS/renderer/server/src/routes/client
       dockerfile: Dockerfile
     container_name: desksos_client_prod
     restart: unless-stopped
