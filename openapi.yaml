@@ -1,0 +1,140 @@
+openapi: 3.0.0
+info:
+  title: DeskSOS Enterprise API
+  description: Comprehensive system monitoring, management, and deployment API
+  version: 1.0.0
+  contact:
+    name: DeskSOS Support
+    email: support@desksos.local
+servers:
+  - url: https://api.desksos.local/v1
+    description: Production
+  - url: http://localhost:3000/v1
+    description: Development
+tags:
+  - name: Health & Diagnostics
+  - name: Users
+  - name: Services
+  - name: Configuration
+  - name: Deployments
+  - name: Logs
+security:
+  - BearerAuth: []
+paths:
+  /health:
+    get:
+      summary: Get system health status
+      tags: [Health & Diagnostics]
+      responses:
+        "200":
+          description: System health
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+  /diagnostics:
+    get:
+      summary: Get comprehensive diagnostics
+      tags: [Health & Diagnostics]
+      parameters:
+        - name: detailed
+          in: query
+          schema:
+            type: boolean
+        - name: include
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Diagnostics data
+  /services:
+    get:
+      summary: List all services
+      tags: [Services]
+      responses:
+        "200":
+          description: Services list
+  /users:
+    get:
+      summary: List users
+      tags: [Users]
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Users list
+    post:
+      summary: Create user
+      tags: [Users]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserRequest"
+      responses:
+        "201":
+          description: User created
+  /config:
+    get:
+      summary: Get configuration
+      tags: [Configuration]
+      responses:
+        "200":
+          description: System configuration
+    put:
+      summary: Update configuration
+      tags: [Configuration]
+      responses:
+        "200":
+          description: Updated
+  /deployments:
+    get:
+      summary: List deployments
+      tags: [Deployments]
+      responses:
+        "200":
+          description: Deployments list
+    post:
+      summary: Create deployment
+      tags: [Deployments]
+      responses:
+        "202":
+          description: Deployment started
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        uptime:
+          type: string
+        services:
+          type: object
+    CreateUserRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+        name:
+          type: string
