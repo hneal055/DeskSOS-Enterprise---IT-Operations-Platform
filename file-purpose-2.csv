@@ -1,0 +1,10 @@
+﻿File,Purpose,Key Checks
+docker-compose.yml,Local dev environment,"✅ Uses build: instead of image: for live code changes
+✅ Mounts volumes for hot reload
+✅ Exposes ports safely (avoid 0.0.0.0 unless needed)
+✅ Includes environment variables via .env"
+docker-compose.prod.yml,Production deployment,"✅ Uses prebuilt images with version tags
+✅ Defines restart policies (always, unless-stopped)
+✅ Includes health checks
+✅ Avoids mounting source code volumes
+✅ Uses secrets or environment files securely"
