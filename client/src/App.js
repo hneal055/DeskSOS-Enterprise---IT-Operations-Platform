@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 
-const API_BASE = 'http://localhost:32769';
+const API_BASE = 'http://localhost:5000';
 
 function App() {
   const [incidents, setIncidents] = useState([]);
