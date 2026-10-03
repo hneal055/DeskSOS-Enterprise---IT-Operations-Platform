@@ -1,402 +1,536 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { io } from 'socket.io-client';
 
-const API_BASE = 'http://localhost:5000';
+const API_BASE = ''; // Leverages the package.json proxy to bypass CORS
 
-function App() {
+export default function App() {
+  // Incident & System States
   const [incidents, setIncidents] = useState([]);
-  const [selectedId, setSelectedId] = useState(null);
-  const [apiStatus, setApiStatus] = useState('Checking...');
-  const [servicesStatus, setServicesStatus] = useState(null);
-  const [isCreating, setIsCreating] = useState(false);
-
-  // Form Fields
-  const [newTitle, setNewTitle] = useState('');
-  const [newDesc, setNewDesc] = useState('');
-  const [newCategory, setNewCategory] = useState('Infrastructure');
-  const [newSeverity, setNewSeverity] = useState('MEDIUM');
-  const [newLat, setNewLat] = useState('34.0522');
-  const [newLng, setNewLng] = useState('-118.2437');
-
-  // Load Incidents and Health status
-  const loadData = async () => {
-    try {
-      const response = await fetch(`${API_BASE}/api/incidents`);
-      if (response.ok) {
-        const data = await response.json();
-        setIncidents(data);
-        if (data.length > 0 && selectedId === null) {
-          setSelectedId(data[0].id);
-        }
-      }
-    } catch (e) {
-      console.warn('API unavailable, rendering fallback mock incidents.');
-    }
-  };
-
-  const checkHealth = async () => {
-    try {
-      const response = await fetch(`${API_BASE}/health`);
-      if (response.ok) {
-        const data = await response.json();
-        setApiStatus(data.status === 'ok' ? 'Online' : 'Degraded');
-        setServicesStatus(data.services);
-      } else {
-        setApiStatus('Degraded');
-      }
-    } catch (e) {
-      setApiStatus('Offline');
-      setServicesStatus(null);
-    }
-  };
-
+  const [selectedIncident, setSelectedIncident] = useState(null);
+  const [gatewayStatus, setGatewayStatus] = useState('Online');
+  const [isStrobing, setIsStrobing] = useState(false); // Tactical Visual Strobe State
+  const [audioArmed, setAudioArmed] = useState(false); // Browser Audio Activation State
+  
+  // Ref to prevent stale closures in WebSocket event listeners
+  const audioArmedRef = useRef(audioArmed);
   useEffect(() => {
-    // Initial fetch
-    loadData();
-    checkHealth();
+    audioArmedRef.current = audioArmed;
+  }, [audioArmed]);
 
-    // Poll status checks every 5 seconds
-    const interval = setInterval(() => {
-      loadData();
-      checkHealth();
-    }, 5000);
+  // Form Fields State
+  const [ticketTitle, setTicketTitle] = useState('');
+  const [ticketDescription, setTicketDescription] = useState('');
+  const [ticketCategory, setTicketCategory] = useState('Infrastructure');
+  const [ticketSeverity, setTicketSeverity] = useState('MEDIUM');
+  const [ticketLatitude, setTicketLatitude] = useState('34.0522');
+  const [ticketLongitude, setTicketLongitude] = useState('-118.2437');
+  const [ticketAssignedTo, setTicketAssignedTo] = useState('Node-Ops-Lead');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Load Incidents & Health Status (Polling Fallback)
+  useEffect(() => {
+    loadIncidents();
+    const interval = setInterval(loadIncidents, 15000);
     return () => clearInterval(interval);
   }, []);
 
-  // Compute Metrics
-  const activeIncidents = incidents.filter(inc => inc.status !== 'Resolved');
-  const criticalCount = activeIncidents.filter(inc => inc.severity === 'CRITICAL').length;
-  const highCount = activeIncidents.filter(inc => inc.severity === 'HIGH').length;
-  const resolvedCount = incidents.filter(inc => inc.status === 'Resolved').length;
+  // Arm Audio & Speech on User Gesture
+  const handleArmAudio = () => {
+    try {
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      audioCtx.resume();
+      
+      // Test beep to confirm arming
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = 440;
+      gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.15);
 
-  const selectedIncident = incidents.find(inc => inc.id === selectedId) || incidents[0];
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(new SpeechSynthesisUtterance('Tactical audio armed'));
+      }
 
-  // Submit new incident ticket
-  const handleSubmit = async (e) => {
+      setAudioArmed(true);
+    } catch (err) {
+      console.error('Failed to arm audio:', err);
+    }
+  };
+
+  // Combined Tactical Audio & Visual Strobe Handler for CRITICAL severity events
+  const handleCriticalAlert = async (incident) => {
+    if (incident.severity === 'CRITICAL') {
+      setIsStrobing(true); // Activate Visual Emergency Strobe
+
+      if (audioArmedRef.current) {
+        try {
+          // 1. Synthetic Oscillator Beep
+          const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          if (audioCtx.state === 'suspended') {
+            await audioCtx.resume();
+          }
+
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = 'sawtooth';
+          osc.frequency.value = 880; // High-priority alert pitch
+          gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start();
+          osc.stop(audioCtx.currentTime + 0.4);
+        } catch (err) {
+          console.error('Audio context blocked or unsupported:', err);
+        }
+
+        // 2. Text-to-Speech Voice Dispatch Callout
+        if ('speechSynthesis' in window) {
+          window.speechSynthesis.cancel();
+          const utterance = new SpeechSynthesisUtterance(`Critical alert received: ${incident.title}`);
+          utterance.rate = 1.1;
+          window.speechSynthesis.speak(utterance);
+        }
+      }
+    }
+  };
+
+  // Real-time WebSocket Synchronization
+  useEffect(() => {
+    const socket = io(); // Connects automatically via proxy/same-origin
+
+    socket.on('incident:locked', ({ incidentId, lockedBy }) => {
+      setIncidents(prev => 
+        prev.map(inc => (inc.id === incidentId || inc._id === incidentId) ? { ...inc, lockedBy } : inc)
+      );
+      setSelectedIncident(curr => 
+        (curr && (curr.id === incidentId || curr._id === incidentId)) ? { ...curr, lockedBy } : curr
+      );
+    });
+
+    socket.on('incident:created', (newIncident) => {
+      setIncidents(prev => [newIncident, ...prev.filter(i => (i.id || i._id) !== (newIncident.id || newIncident._id))]);
+      handleCriticalAlert(newIncident); // Triggers audio-visual tactical response on CRITICAL alerts
+    });
+
+    socket.on('incident:updated', (updatedIncident) => {
+      setIncidents(prev => 
+        prev.map(inc => (inc.id === updatedIncident.id || inc._id === updatedIncident._id) ? updatedIncident : inc)
+      );
+      setSelectedIncident(curr => 
+        (curr && (curr.id === updatedIncident.id || curr._id === updatedIncident._id)) ? updatedIncident : curr
+      );
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, []);
+
+  const loadIncidents = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/incidents`);
+      if (res.ok) {
+        const data = await res.json();
+        setIncidents(data);
+        setGatewayStatus('Online');
+      } else {
+        setGatewayStatus('Offline');
+      }
+    } catch (err) {
+      console.error('Failed to load incidents:', err);
+      setGatewayStatus('Offline');
+    }
+  };
+
+  // Handle selecting an incident and acquiring concurrency lock
+  const handleSelectIncident = async (incident) => {
+    setSelectedIncident(incident);
+    const incidentId = incident.id || incident._id;
+
+    try {
+      await fetch(`${API_BASE}/api/incidents/${incidentId}/lock`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ operatorName: ticketAssignedTo || 'Node-Ops-Lead' })
+      });
+    } catch (err) {
+      console.error('Failed to acquire incident lock:', err);
+    }
+  };
+
+  // Handle Form Submission to POST /api/incidents
+  const handleTicketSubmit = async (e) => {
     e.preventDefault();
-    if (!newTitle.trim() || !newDesc.trim()) {
-      alert('Please fill out all required fields.');
+
+    if (!ticketTitle || !ticketDescription) {
+      alert('Please enter a title and description for the incident.');
       return;
     }
 
-    const payload = {
-      title: newTitle,
-      description: newDesc,
-      category: newCategory,
-      severity: newSeverity,
-      location: {
-        latitude: parseFloat(newLat) || 34.0522,
-        longitude: parseFloat(newLng) || -118.2437
-      },
-      assignedTo: 'Unassigned',
-      status: 'Open'
-    };
+    setIsSubmitting(true);
 
     try {
       const response = await fetch(`${API_BASE}/api/incidents`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          title: ticketTitle,
+          description: ticketDescription,
+          category: ticketCategory,
+          severity: ticketSeverity,
+          location: {
+            latitude: parseFloat(ticketLatitude),
+            longitude: parseFloat(ticketLongitude)
+          },
+          assignedTo: ticketAssignedTo,
+          status: 'Open'
+        }),
       });
+
       if (response.ok) {
-        const added = await response.json();
-        setIncidents([added, ...incidents]);
-        setSelectedId(added.id);
-        setIsCreating(false);
-        // Reset form
-        setNewTitle('');
-        setNewDesc('');
-        setNewSeverity('MEDIUM');
+        setTicketTitle('');
+        setTicketDescription('');
       } else {
-        throw new Error('Server validation failed');
+        console.error('Failed to log incident');
       }
-    } catch (e) {
-      // In-memory local fallback update
-      const localAdded = {
-        id: Date.now(),
-        ...payload,
-        created_at: new Date().toISOString()
-      };
-      setIncidents([localAdded, ...incidents]);
-      setSelectedId(localAdded.id);
-      setIsCreating(false);
-      setNewTitle('');
-      setNewDesc('');
-      setNewSeverity('MEDIUM');
+    } catch (error) {
+      console.error('Error submitting incident ticket:', error);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  // Modify active incident status
-  const handleUpdateStatus = async (id, status) => {
+  // Handle updating an incident's status (e.g. "In Progress", "Resolved")
+  const handleUpdateStatus = async (incidentId, newStatus) => {
     try {
-      const response = await fetch(`${API_BASE}/api/incidents/${id}`, {
+      const response = await fetch(`${API_BASE}/api/incidents/${incidentId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status })
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ status: newStatus }),
       });
+
       if (response.ok) {
-        const updated = await response.json();
-        setIncidents(incidents.map(inc => inc.id === id ? updated : inc));
+        const updatedIncident = await response.json();
+        console.log('Incident status updated:', updatedIncident);
+      } else {
+        console.error('Failed to update incident status');
       }
-    } catch (e) {
-      // Local fallback
-      setIncidents(incidents.map(inc => inc.id === id ? { ...inc, status } : inc));
+    } catch (error) {
+      console.error('Error updating incident status:', error);
     }
   };
 
-  // Helper for formatting times
-  const formatDate = (isoString) => {
-    try {
-      return new Date(isoString).toLocaleString();
-    } catch (e) {
-      return 'N/A';
-    }
-  };
+  // Metric Calculations
+  const criticalCount = incidents.filter(i => i.severity === 'CRITICAL').length;
+  const highCount = incidents.filter(i => i.severity === 'HIGH').length;
+  const totalActive = incidents.filter(i => i.status !== 'Resolved').length;
+  const resolvedCount = incidents.filter(i => i.status === 'Resolved').length;
 
   return (
-    <div className="ops-container">
+    <div className={`min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans transition-colors duration-300 ${isStrobing ? 'border-4 border-rose-500' : ''}`}>
       
-      {/* Ops Center Header */}
-      <div className="ops-header">
-        <div className="ops-title-group">
-          <span className="ops-title-logo">📡</span>
-          <div>
-            <h1>DeskSOS Enterprise</h1>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Security & Infrastructure Operations Center</div>
+      {/* Visual Emergency Strobe Banner */}
+      {isStrobing && (
+        <div className="bg-rose-950/90 border-b border-rose-500 px-6 py-2.5 flex justify-between items-center animate-pulse z-50">
+          <div className="flex items-center space-x-3">
+            <span className="h-3 w-3 rounded-full bg-rose-500 animate-ping"></span>
+            <span className="text-xs font-extrabold text-rose-200 tracking-wider">TACTICAL STROBE ACTIVE: UNACKNOWLEDGED CRITICAL THREAT DETECTED</span>
+          </div>
+          <button 
+            onClick={() => setIsStrobing(false)}
+            className="bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold px-3 py-1 rounded shadow transition"
+          >
+            Acknowledge & Silence Strobe
+          </button>
+        </div>
+      )}
+
+      {/* Header */}
+      <header className="bg-slate-900 border-b border-slate-800 px-6 py-4 flex justify-between items-center">
+        <div>
+          <h1 className="text-xl font-bold tracking-wide bg-gradient-to-r from-pink-500 to-purple-500 bg-clip-text text-transparent">
+            DeskSOS Enterprise
+          </h1>
+          <p className="text-xs text-slate-400">Security & Workforce Operations Center</p>
+        </div>
+        <div className="flex items-center space-x-4">
+          {/* Audio Arming Button */}
+          <button
+            onClick={handleArmAudio}
+            className={`px-3 py-1.5 rounded text-xs font-semibold border transition flex items-center space-x-2 ${
+              audioArmed 
+                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 animate-pulse' 
+                : 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30'
+            }`}
+          >
+            <span>{audioArmed ? '🔊 Tactical Audio: Armed' : '🔇 Click to Arm Audio'}</span>
+          </button>
+
+          <div className="flex items-center space-x-2 bg-slate-950 px-3 py-1.5 rounded border border-slate-800 text-xs">
+            <span className={`h-2.5 w-2.5 rounded-full ${gatewayStatus === 'Online' ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`}></span>
+            <span className="text-slate-300">Gateway: {gatewayStatus}</span>
           </div>
         </div>
-        
-        <div className="status-indicator">
-          <span className={`status-dot ${apiStatus === 'Offline' ? 'offline' : apiStatus === 'Degraded' ? 'degraded' : ''}`}></span>
-          <span>Gateway: {apiStatus}</span>
-          {servicesStatus && (
-            <span style={{ fontSize: '0.75rem', opacity: 0.8, marginLeft: '6px' }}>
-              (DB: {servicesStatus.database === 'connected' ? '✓' : '✗'}, Cache: {servicesStatus.cache === 'connected' ? '✓' : '✗'})
-            </span>
-          )}
-        </div>
-      </div>
+      </header>
 
-      {/* Metric Counters Grid */}
-      <div className="metrics-grid">
-        <div className="metric-card critical">
-          <div className="metric-label">Critical Alerts</div>
-          <div className="metric-value">{criticalCount}</div>
+      {/* Main Container */}
+      <main className="flex-1 p-6 space-y-6 max-w-7xl mx-auto w-full">
+        {/* Metric Cards */}
+        <div className="grid grid-cols-4 gap-4">
+          <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-lg">
+            <p className="text-xs text-slate-400 uppercase tracking-wider">Critical Alerts</p>
+            <p className="text-2xl font-extrabold text-rose-500 mt-1">{criticalCount}</p>
+          </div>
+          <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-lg">
+            <p className="text-xs text-slate-400 uppercase tracking-wider">High Severity</p>
+            <p className="text-2xl font-extrabold text-amber-500 mt-1">{highCount}</p>
+          </div>
+          <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-lg">
+            <p className="text-xs text-slate-400 uppercase tracking-wider">Total Active</p>
+            <p className="text-2xl font-extrabold text-cyan-400 mt-1">{totalActive}</p>
+          </div>
+          <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-lg">
+            <p className="text-xs text-slate-400 uppercase tracking-wider">Resolved (Cycle)</p>
+            <p className="text-2xl font-extrabold text-emerald-400 mt-1">{resolvedCount}</p>
+          </div>
         </div>
-        <div className="metric-card high">
-          <div className="metric-label">High Severity</div>
-          <div className="metric-value">{highCount}</div>
-        </div>
-        <div className="metric-card active-tickets">
-          <div className="metric-label">Total Active</div>
-          <div className="metric-value">{activeIncidents.length}</div>
-        </div>
-        <div className="metric-card resolved">
-          <div className="metric-label">Resolved (Cycle)</div>
-          <div className="metric-value">{resolvedCount}</div>
-        </div>
-      </div>
 
-      {/* Main Grid */}
-      <div className="dashboard-grid">
-        
-        {/* Left Card: Incident List */}
-        <div className="ops-card">
-          <div className="ops-card-title">
-            <span>🚨 Live Incident Stream</span>
-            {!isCreating && (
-              <button 
-                onClick={() => setIsCreating(true)}
-                style={{ 
-                  background: 'linear-gradient(135deg, #f43f5e, #a855f7)', 
-                  border: 'none', 
-                  color: 'white', 
-                  padding: '4px 12px', 
-                  borderRadius: '6px', 
-                  fontSize: '0.8rem', 
-                  fontWeight: '700', 
-                  cursor: 'pointer' 
-                }}
-              >
-                + LOG TICKET
-              </button>
+        {/* Dashboard Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Left Column: Live Incident Stream & Submission Form */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Form Fields Section */}
+            <div className="bg-slate-900/60 border border-slate-800 p-5 rounded-lg">
+              <h2 className="text-sm font-semibold text-slate-200 mb-4 flex items-center space-x-2">
+                <span className="h-2 w-2 rounded-full bg-pink-500"></span>
+                <span>Log New Incident Ticket</span>
+              </h2>
+
+              <form onSubmit={handleTicketSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Incident Title</label>
+                  <input 
+                    type="text" 
+                    value={ticketTitle} 
+                    onChange={(e) => setTicketTitle(e.target.value)}
+                    placeholder="e.g. Memory leak detected on worker cluster"
+                    className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-white text-sm focus:outline-none focus:border-purple-500"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Detailed Description</label>
+                  <textarea 
+                    value={ticketDescription} 
+                    onChange={(e) => setTicketDescription(e.target.value)}
+                    placeholder="Provide diagnostic details..."
+                    className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-white text-sm h-20 focus:outline-none focus:border-purple-500 resize-none"
+                    required
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Category</label>
+                    <select 
+                      value={ticketCategory} 
+                      onChange={(e) => setTicketCategory(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-white text-sm focus:outline-none focus:border-purple-500"
+                    >
+                      <option value="Infrastructure">Infrastructure</option>
+                      <option value="Database">Database</option>
+                      <option value="Network">Network</option>
+                      <option value="Security">Security</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Severity Level</label>
+                    <select 
+                      value={ticketSeverity} 
+                      onChange={(e) => setTicketSeverity(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-white text-sm focus:outline-none focus:border-purple-500"
+                    >
+                      <option value="CRITICAL">CRITICAL</option>
+                      <option value="HIGH">HIGH</option>
+                      <option value="MEDIUM">MEDIUM</option>
+                      <option value="LOW">LOW</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Assigned To</label>
+                    <input 
+                      type="text" 
+                      value={ticketAssignedTo} 
+                      onChange={(e) => setTicketAssignedTo(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-white text-sm focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Latitude</label>
+                    <input 
+                      type="text" 
+                      value={ticketLatitude} 
+                      onChange={(e) => setTicketLatitude(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-white text-sm focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Longitude</label>
+                    <input 
+                      type="text" 
+                      value={ticketLongitude} 
+                      onChange={(e) => setTicketLongitude(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-white text-sm focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+                </div>
+
+                <button 
+                  type="submit" 
+                  disabled={isSubmitting}
+                  className="w-full bg-gradient-to-r from-pink-600 to-purple-600 text-white font-semibold py-2.5 rounded shadow hover:opacity-90 transition disabled:opacity-50"
+                >
+                  {isSubmitting ? 'Transmitting Ticket...' : 'Submit Ticket'}
+                </button>
+              </form>
+            </div>
+
+            {/* Live Incident Stream */}
+            <div className="bg-slate-900/60 border border-slate-800 p-5 rounded-lg">
+              <h2 className="text-sm font-semibold text-slate-200 mb-4 flex items-center space-x-2">
+                <span className="h-2 w-2 rounded-full bg-cyan-400 animate-ping"></span>
+                <span>Live Incident Stream</span>
+              </h2>
+
+              <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1">
+                {incidents.length === 0 ? (
+                  <p className="text-xs text-slate-500 text-center py-6">No active incidents queued.</p>
+                ) : (
+                  incidents.map((incident) => (
+                    <div 
+                      key={incident.id || incident._id} 
+                      onClick={() => handleSelectIncident(incident)}
+                      className={`p-3.5 rounded border cursor-pointer transition ${selectedIncident?.id === incident.id ? 'bg-slate-800 border-purple-500' : 'bg-slate-950/50 border-slate-800 hover:border-slate-700'}`}
+                    >
+                      <div className="flex justify-between items-start">
+                        <span className="font-medium text-sm text-slate-200">{incident.title}</span>
+                        <span className={`text-[10px] px-2 py-0.5 rounded font-semibold ${
+                          incident.severity === 'CRITICAL' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' :
+                          incident.severity === 'HIGH' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
+                          'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
+                        }`}>
+                          {incident.severity}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-1 line-clamp-1">{incident.description}</p>
+
+                      <div className="flex justify-between items-center text-[11px] text-slate-500 mt-2">
+                        <span>Cat: {incident.category}</span>
+                        {incident.lockedBy && (
+                          <span className="bg-purple-500/20 text-purple-300 border border-purple-500/30 px-2 py-0.5 rounded font-mono">
+                            🔒 {incident.lockedBy}
+                          </span>
+                        )}
+                        <span>{new Date(incident.timestamp || Date.now()).toLocaleTimeString()}</span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Right Column: Incident Inspection Console */}
+          <div className="bg-slate-900/60 border border-slate-800 p-5 rounded-lg flex flex-col">
+            <h2 className="text-sm font-semibold text-slate-200 mb-4 flex items-center space-x-2">
+              <span className="h-2 w-2 rounded-full bg-purple-500"></span>
+              <span>Incident Inspection Console</span>
+            </h2>
+
+            {selectedIncident ? (
+              <div className="space-y-4 flex-1 flex flex-col justify-between">
+                <div className="space-y-3">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider text-slate-500">Selected Incident</p>
+                      <h3 className="text-base font-semibold text-slate-100 mt-0.5">{selectedIncident.title}</h3>
+                    </div>
+                    {selectedIncident.lockedBy && (
+                      <span className="text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-2 py-0.5 rounded font-mono">
+                        🔒 Locked: {selectedIncident.lockedBy}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 bg-slate-950 p-3 rounded border border-slate-800 text-xs">
+                    <div>
+                      <span className="text-slate-500 block">Category:</span>
+                      <span className="text-slate-300 font-medium">{selectedIncident.category}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block">Assigned To:</span>
+                      <span className="text-slate-300 font-medium">{selectedIncident.assignedTo || 'Unassigned'}</span>
+                    </div>
+                    <div className="col-span-2 mt-2">
+                      <span className="text-slate-500 block">Logged Time:</span>
+                      <span className="text-slate-300">{new Date(selectedIncident.timestamp || Date.now()).toLocaleString()}</span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Diagnostic Summary</p>
+                    <div className="bg-slate-950 p-3 rounded border border-slate-800 text-xs text-slate-300 min-h-[100px]">
+                      {selectedIncident.description}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Inspection Console Actions Footer */}
+                <div className="pt-4 border-t border-slate-800 space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <button 
+                      onClick={() => handleUpdateStatus(selectedIncident.id || selectedIncident._id, 'In Progress')}
+                      className="bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 border border-amber-500/30 text-xs font-semibold py-2 rounded transition"
+                    >
+                      Mark In Progress
+                    </button>
+                    <button 
+                      onClick={() => handleUpdateStatus(selectedIncident.id || selectedIncident._id, 'Resolved')}
+                      className="bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30 text-xs font-semibold py-2 rounded transition"
+                    >
+                      Resolve Incident
+                    </button>
+                  </div>
+                  <button 
+                    onClick={() => setSelectedIncident(null)}
+                    className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold py-2 rounded transition"
+                  >
+                    Clear Selection
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center text-center p-6 border border-dashed border-slate-800 rounded">
+                <p className="text-xs text-slate-500">Select an incident from the stream to view full diagnostics and management actions.</p>
+              </div>
             )}
           </div>
-
-          {isCreating ? (
-            /* Log New Ticket Form */
-            <form onSubmit={handleSubmit} style={{ display: 'flex', flexVisual: 'column', flexDirection: 'column', gap: '8px' }}>
-              <div className="form-input-group">
-                <label className="form-label">Incident title</label>
-                <input 
-                  type="text" 
-                  value={newTitle} 
-                  onChange={(e) => setNewTitle(e.target.value)} 
-                  placeholder="e.g. Docker Daemon crash on production node" 
-                  required
-                />
-              </div>
-
-              <div className="form-input-group">
-                <label className="form-label">Detailed description</label>
-                <textarea 
-                  rows="3" 
-                  value={newDesc} 
-                  onChange={(e) => setNewDesc(e.target.value)} 
-                  placeholder="Enter details of system failure or log anomalies..." 
-                  required
-                />
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <div className="form-input-group">
-                  <label className="form-label">Category</label>
-                  <select value={newCategory} onChange={(e) => setNewCategory(e.target.value)}>
-                    <option value="Infrastructure">Infrastructure</option>
-                    <option value="Database">Database</option>
-                    <option value="Security">Security</option>
-                    <option value="Application">Application</option>
-                  </select>
-                </div>
-                <div className="form-input-group">
-                  <label className="form-label">Severity Level</label>
-                  <select value={newSeverity} onChange={(e) => setNewSeverity(e.target.value)}>
-                    <option value="LOW">LOW</option>
-                    <option value="MEDIUM">MEDIUM</option>
-                    <option value="HIGH">HIGH</option>
-                    <option value="CRITICAL">CRITICAL</option>
-                  </select>
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <div className="form-input-group">
-                  <label className="form-label">Latitude Coordinate</label>
-                  <input type="text" value={newLat} onChange={(e) => setNewLat(e.target.value)} />
-                </div>
-                <div className="form-input-group">
-                  <label className="form-label">Longitude Coordinate</label>
-                  <input type="text" value={newLng} onChange={(e) => setNewLng(e.target.value)} />
-                </div>
-              </div>
-
-              <div className="btn-group">
-                <button type="submit" className="btn-primary">SUBMIT TICKET</button>
-                <button type="button" className="btn-secondary" onClick={() => setIsCreating(false)}>CANCEL</button>
-              </div>
-            </form>
-          ) : (
-            /* Incident List view */
-            <div className="incident-list-wrapper">
-              {incidents.length === 0 ? (
-                <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', padding: '20px 0', textAlign: 'center' }}>
-                  No active incidents queued.
-                </div>
-              ) : (
-                incidents.map(inc => (
-                  <div 
-                    key={inc.id} 
-                    className={`incident-row ${selectedIncident?.id === inc.id ? 'selected' : ''}`}
-                    onClick={() => setSelectedId(inc.id)}
-                  >
-                    <div className="incident-row-header">
-                      <span className="incident-row-title">{inc.title}</span>
-                      <span className={`badge-tag ${inc.severity.toLowerCase()} ${inc.status === 'Resolved' ? 'resolved' : ''}`}>
-                        {inc.status === 'Resolved' ? 'Resolved' : inc.severity}
-                      </span>
-                    </div>
-                    <div className="incident-row-meta">
-                      <span>Cat: {inc.category}</span>
-                      <span>{formatDate(inc.created_at)}</span>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
         </div>
-
-        {/* Right Card: Incident Inspector Details */}
-        <div className="ops-card">
-          <div className="ops-card-title">🔍 Incident Inspection Console</div>
-          
-          {selectedIncident ? (
-            <div className="detail-view">
-              <div className="detail-header">
-                <div className="detail-title">{selectedIncident.title}</div>
-                <span className={`badge-tag ${selectedIncident.severity.toLowerCase()} ${selectedIncident.status === 'Resolved' ? 'resolved' : ''}`}>
-                  {selectedIncident.status}
-                </span>
-              </div>
-
-              <div className="detail-meta-grid">
-                <div className="detail-meta-item">
-                  <span className="detail-meta-label">Category</span>
-                  <span className="detail-meta-val">{selectedIncident.category}</span>
-                </div>
-                <div className="detail-meta-item">
-                  <span className="detail-meta-label">Assigned Operator</span>
-                  <span className="detail-meta-val">{selectedIncident.assignedTo}</span>
-                </div>
-                <div className="detail-meta-item">
-                  <span className="detail-meta-label">Timestamp</span>
-                  <span className="detail-meta-val" style={{ fontSize: '0.8rem' }}>{formatDate(selectedIncident.created_at)}</span>
-                </div>
-              </div>
-
-              <div className="detail-description">
-                <div style={{ fontWeight: '700', color: 'white', marginBottom: '4px' }}>Incident Summary:</div>
-                {selectedIncident.description}
-              </div>
-
-              {/* Mock Radar Target Location Map */}
-              <div>
-                <div style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>
-                  🎯 Targeting Location Geo-Matrix
-                </div>
-                <div className="mock-map">
-                  <div className="map-radar-ring"></div>
-                  <div className="map-pulse-point"></div>
-                  <div className="map-info-overlay">
-                    LAT: {selectedIncident.location?.latitude.toFixed(4) || 'N/A'} | 
-                    LNG: {selectedIncident.location?.longitude.toFixed(4) || 'N/A'}
-                  </div>
-                </div>
-              </div>
-
-              {/* Status Update Actions */}
-              <div style={{ marginTop: '10px' }}>
-                <label className="form-label">Transition State</label>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button 
-                    className="btn-secondary" 
-                    style={{ flex: 1, color: '#f59e0b', borderColor: 'rgba(245,158,11,0.2)' }}
-                    onClick={() => handleUpdateStatus(selectedIncident.id, 'In Progress')}
-                    disabled={selectedIncident.status === 'Resolved'}
-                  >
-                    ⚙️ IN PROGRESS
-                  </button>
-                  <button 
-                    className="btn-secondary" 
-                    style={{ flex: 1, color: '#10b981', borderColor: 'rgba(16,185,129,0.2)' }}
-                    onClick={() => handleUpdateStatus(selectedIncident.id, 'Resolved')}
-                    disabled={selectedIncident.status === 'Resolved'}
-                  >
-                    ✓ RESOLVE TICKET
-                  </button>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div style={{ color: 'var(--text-muted)', padding: '40px 0', textAlign: 'center' }}>
-              Select an incident from the stream to view full diagnostics.
-            </div>
-          )}
-        </div>
-
-      </div>
+      </main>
     </div>
   );
 }
-
-export default App;
