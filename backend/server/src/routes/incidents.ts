@@ -1,80 +1,45 @@
 import { Router, Request, Response } from 'express';
+import { listIncidents, createIncident, getIncident, updateIncidentStatus, SEVERITIES, Severity } from '../db';
 
 const router = Router();
 
-// In-memory sample storage for operational incidents
-let incidents = [
-  {
-    id: 1,
-    title: 'Docker Daemon crash on production node',
-    description: 'Primary container engine terminated unexpectedly due to OOM killer invocation.',
-    category: 'Infrastructure',
-    severity: 'CRITICAL',
-    status: 'Open',
-    location: { latitude: 34.0522, longitude: -118.2437 },
-    assignedTo: 'Node-Ops-Lead',
-    created_at: new Date(Date.now() - 3600000).toISOString()
-  },
-  {
-    id: 2,
-    title: 'PostgreSQL Connection Pool Saturation',
-    description: 'Active database connections exceeded max pool limit under heavy analytics query load.',
-    category: 'Database',
-    severity: 'HIGH',
-    status: 'In Progress',
-    location: { latitude: 34.0550, longitude: -118.2450 },
-    assignedTo: 'DBA-Alpha',
-    created_at: new Date(Date.now() - 7200000).toISOString()
-  }
-];
-
-let activeLocks: Record<number, string> = {}; // incidentId -> operatorName
+// Locks are coordination state for operators currently on shift, so they
+// stay in memory; incidents themselves are persisted in SQLite.
+const activeLocks: Record<number, string> = {}; // incidentId -> operatorName
 
 // GET /api/incidents
 router.get('/', (req: Request, res: Response) => {
   try {
-    res.json(incidents);
+    res.json(listIncidents().map(inc => (activeLocks[inc.id] ? { ...inc, lockedBy: activeLocks[inc.id] } : inc)));
   } catch (err) {
     res.status(500).json({ error: 'Internal gateway error retrieving incident stream' });
   }
 });
 
-// POST /api/incidents
+// POST /api/incidents (Enterprise UI)
 router.post('/', (req: Request, res: Response) => {
   try {
     const { title, description, category, severity, location, assignedTo, status } = req.body;
-    
+
     if (!title || typeof title !== 'string' || !description || typeof description !== 'string') {
       return res.status(400).json({ error: 'Valid title and description strings are required' });
     }
 
-    const newIncident = {
-      id: Date.now(),
+    const lat = Number(location?.latitude);
+    const lon = Number(location?.longitude);
+    const newIncident = createIncident({
       title: title.trim(),
       description: description.trim(),
       category: category || 'Infrastructure',
-      severity: ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].includes(severity) ? severity : 'MEDIUM',
+      severity: SEVERITIES.includes(severity) ? (severity as Severity) : 'MEDIUM',
       status: status || 'Open',
-      location: {
-        latitude: location?.latitude ? Number(location.latitude) : 34.0522,
-        longitude: location?.longitude ? Number(location.longitude) : -118.2437
-      },
+      latitude: Number.isFinite(lat) ? lat : undefined,
+      longitude: Number.isFinite(lon) ? lon : undefined,
       assignedTo: assignedTo || 'Unassigned',
-      created_at: new Date().toISOString()
-    };
+      source: 'enterprise-ui',
+    });
 
-    incidents.unshift(newIncident);
-
-    // Keep memory footprint bounded (max 500 active records)
-    if (incidents.length > 500) {
-      incidents = incidents.slice(0, 500);
-    }
-
-    const io = req.app.get('io');
-    if (io) {
-      io.emit('incident:created', newIncident);
-    }
-
+    req.app.get('io')?.emit('incident:created', newIncident);
     res.status(201).json(newIncident);
   } catch (error) {
     res.status(500).json({ error: 'Failed to process incident transmission' });
@@ -86,25 +51,18 @@ router.patch('/:id', (req: Request, res: Response) => {
   try {
     const id = Number(req.params.id);
     const { status } = req.body;
-    const incident = incidents.find(inc => inc.id === id);
-    
-    if (!incident) {
+
+    if (!getIncident(id)) {
       return res.status(404).json({ error: 'Incident target not found in stream' });
     }
 
-    if (status) {
-      incident.status = status;
-      if (status === 'Resolved') {
-        // Release lock automatically upon resolution
-        delete activeLocks[id];
-      }
+    if (status === 'Resolved') {
+      // Release lock automatically upon resolution
+      delete activeLocks[id];
     }
+    const incident = status ? updateIncidentStatus(id, status) : getIncident(id);
 
-    const io = req.app.get('io');
-    if (io) {
-      io.emit('incident:updated', incident);
-    }
-
+    req.app.get('io')?.emit('incident:updated', incident);
     res.json(incident);
   } catch (error) {
     res.status(500).json({ error: 'Failed to update incident state' });
@@ -123,10 +81,7 @@ router.post('/:id/lock', (req: Request, res: Response) => {
 
     activeLocks[id] = operatorName || 'Anonymous-Operator';
 
-    const io = req.app.get('io');
-    if (io) {
-      io.emit('incident:locked', { incidentId: id, lockedBy: activeLocks[id] });
-    }
+    req.app.get('io')?.emit('incident:locked', { incidentId: id, lockedBy: activeLocks[id] });
 
     res.json({ success: true, lockedBy: activeLocks[id] });
   } catch (error) {

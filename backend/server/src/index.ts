@@ -2,16 +2,15 @@ import express, { Express } from "express";
 import cors from "cors";
 import { createServer } from "http";
 import { Server as SocketIOServer } from "socket.io";
-import dotenv from "dotenv";
-import config from "./config";
+import config from "./config"; // loads .env
 import dashboardRoutes from "./routes/dashboard";
 import chatRoutes from "./routes/chat";
 import authRoutes from "./routes/auth";
 import userRoutes from "./routes/user";
 import incidentRoutes from "./routes/incidents";
+import ingestRoutes from "./routes/ingest";
 import { initializeSocket } from "./services/socket";
-
-dotenv.config();
+import { pingDatabase } from "./db";
 
 // Initialize Express
 const app: Express = express();
@@ -53,14 +52,17 @@ app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/user", userRoutes);
 app.use("/api/incidents", incidentRoutes);
+app.use("/api/ingest", ingestRoutes);
 
-// Health check
+// Health check: reports the real state of the incidents database
 app.get("/health", (req, res) => {
-  res.json({
-    status: "ok",
-    timestamp: new Date().toISOString(),
-    services: { database: "connected", cache: "connected" }
-  });
+  try {
+    pingDatabase();
+    res.json({ status: "ok", timestamp: new Date().toISOString(), services: { database: "connected" } });
+  } catch (err) {
+    console.error("[health] Database check failed:", (err as Error).message);
+    res.status(503).json({ status: "error", timestamp: new Date().toISOString(), services: { database: "unavailable" } });
+  }
 });
 
 // Root API documentation
@@ -71,6 +73,7 @@ app.get("/", (req, res) => {
     endpoints: {
       health: "/health",
       incidents: "GET, POST, PATCH /api/incidents",
+      ingest: "POST /api/ingest/incidents (X-API-Key)",
       dashboard: "GET /api/dashboard",
     },
   });
@@ -105,12 +108,14 @@ app.use(
   }
 );
 
-// Start server
-const PORT = config.port;
-httpServer.listen(PORT, () => {
-  console.log(`=====================================`);
-  console.log(`DeskSOS Backend is Live and Synced on port ${PORT}!`);
-  console.log(`=====================================`);
-});
+// Start server (skipped when imported by tests)
+if (require.main === module) {
+  const PORT = config.port;
+  httpServer.listen(PORT, () => {
+    console.log(`=====================================`);
+    console.log(`DeskSOS Backend is Live and Synced on port ${PORT}!`);
+    console.log(`=====================================`);
+  });
+}
 
-export { app, io };
+export { app, io, httpServer };
