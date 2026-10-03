@@ -76,6 +76,44 @@ docker-compose up --build
 # API Docs: http://localhost:5000/
 ```
 
+### Local Development on Windows (PowerShell scripts)
+
+Two scripts in the repo root manage a non-Docker dev session: the backend runs under PM2 and the React client runs with `npm start`. Postgres and Redis must already be reachable at the hosts configured in `backend/server/.env`.
+
+| Script | What it does |
+| ------ | ------------ |
+| `start-dev.ps1` | Builds `backend/server`, starts or restarts the `desksos-enterprise-backend` PM2 process, polls `http://localhost:5000/health`, then opens a PM2 log window and the React client window (<http://localhost:3000>). |
+| `stop-dev.ps1` | Reverses `start-dev.ps1`. It removes `desksos-enterprise-backend` from PM2, closes the log and client windows, frees ports 5000 and 3000, sweeps orphaned PM2 daemons, and verifies the ports are free. Exits non-zero if anything is still running. |
+
+**Clean restart of the UI dashboard:**
+
+```powershell
+.\stop-dev.ps1
+.\start-dev.ps1
+```
+
+**`stop-dev.ps1` options:**
+
+| Flag | Effect |
+| ---- | ------ |
+| `-DryRun` | Show what would be stopped without changing anything |
+| `-Backup` | Run `backup-desksos.ps1` before tearing down |
+| `-KillPm2` | Stop **all** PM2 daemons and every app they manage (full PM2 reset, also affects non-DeskSOS PM2 apps) |
+| `-ClearCache` | Delete `client/node_modules/.cache` (fixes stale React builds) |
+| `-Force` | Kill whatever holds ports 5000/3000, even if it doesn't look like DeskSOS |
+
+The PM2 process name is deliberately `desksos-enterprise-backend`. The sibling `DESKSOS-Desktop` project registers its own backend as `desksos-backend` (port 5443), and sharing that name made `start-dev.ps1` restart the wrong app. Keep PM2 names unique per project.
+
+Docker containers are never touched. The Postgres and Redis containers may be shared with other projects; stop them with `docker compose down` if you mean to.
+
+#### Troubleshooting: `connect EPERM \\.\pipe\rpc.sock`
+
+On Windows, PM2 communicates through the named pipe `\\.\pipe\rpc.sock`. If the PM2 daemon was started from an **elevated** ("Run as administrator") terminal, a non-elevated terminal can't connect to it. Each failed `pm2` call then starts a new daemon that also can't take the pipe, and these orphans pile up.
+
+- Run `start-dev.ps1` and `stop-dev.ps1` from a terminal with the **same elevation** as the one that first started PM2. Pick one, always elevated or never, and stick with it.
+- Both scripts detect this situation and exit with guidance instead of calling `pm2`.
+- `stop-dev.ps1` removes orphaned daemons automatically. To start completely fresh, run `.\stop-dev.ps1 -KillPm2` from an elevated terminal.
+
 ### Production Deployment
 
 ```bash
