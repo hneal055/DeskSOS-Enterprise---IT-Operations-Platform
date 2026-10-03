@@ -4,7 +4,7 @@
 # Reverses everything start-dev.ps1 launches so the next startup is clean:
 #   - PM2 backend process (desksos-enterprise-backend)
 #   - Helper windows opened by start-dev.ps1 (PM2 log tail, React client)
-#   - Anything still listening on the backend (5000) or client (3000) ports
+#   - Anything still listening on the backend (5100) or client (3000) ports
 #   - Orphaned PM2 daemons left behind by failed pm2 calls (these cause the
 #     "connect EPERM \\.\pipe\rpc.sock" errors on the next startup)
 #
@@ -28,7 +28,7 @@ param(
 )
 
 $ProjectRoot = $PSScriptRoot
-$Ports = @(5000, 3000)
+$Ports = @(5100, 3000)
 $Pm2Name = "desksos-enterprise-backend"
 # Command-line fragments that identify processes belonging to this project
 $OwnedPatterns = @(

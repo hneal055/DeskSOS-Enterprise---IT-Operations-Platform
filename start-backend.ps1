@@ -28,9 +28,9 @@ else {
     Write-Host " -> '$pm2Name' is not registered with PM2." -ForegroundColor Green
 }
 
-# 2. Free up Port 5000, but only if a DeskSOS backend is holding it
-Write-Host "[3/6] Checking port 5000..." -ForegroundColor Yellow
-$port = 5000
+# 2. Free up Port 5100, but only if a DeskSOS backend is holding it
+Write-Host "[3/6] Checking port 5100..." -ForegroundColor Yellow
+$port = 5100
 $processIds = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue |
     Select-Object -ExpandProperty OwningProcess -Unique
 if (-not $processIds) {

@@ -21,9 +21,9 @@ pm2 stop desksos-enterprise-backend 2>$null
 pm2 delete desksos-enterprise-backend 2>$null
 pm2 save 2>$null
 
-# 3. Ensure Port 5000 is fully released
-Write-Host "[3/4] Releasing port 5000..." -ForegroundColor Yellow
-$port = 5000
+# 3. Ensure Port 5100 is fully released
+Write-Host "[3/4] Releasing port 5100..." -ForegroundColor Yellow
+$port = 5100
 $processIds = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue |
     Select-Object -ExpandProperty OwningProcess -Unique
 if (-not $processIds) {

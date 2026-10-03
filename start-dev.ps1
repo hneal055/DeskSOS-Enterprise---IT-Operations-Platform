@@ -56,7 +56,7 @@ $healthOk = $false
 while ($retryCount -lt $maxRetries -and -not$healthOk) {
     Start-Sleep -Seconds 2
     try {
-        $response = Invoke-RestMethod -Uri "http://localhost:5000/health" -Method Get -ErrorAction Stop
+        $response = Invoke-RestMethod -Uri "http://localhost:5100/health" -Method Get -ErrorAction Stop
         if ($response.status -eq "ok") {
             $healthOk = $true
             Write-Host "Backend Health Check Passed!" -ForegroundColor Green
@@ -67,7 +67,7 @@ while ($retryCount -lt $maxRetries -and -not$healthOk) {
     }
     catch {
         $retryCount++
-        Write-Host "  [Attempt $retryCount/$maxRetries] Waiting for backend gateway on port 5000..." -ForegroundColor DarkYellow
+        Write-Host "  [Attempt $retryCount/$maxRetries] Waiting for backend gateway on port 5100..." -ForegroundColor DarkYellow
     }
 }
 
