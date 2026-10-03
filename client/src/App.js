@@ -445,7 +445,7 @@ export default function App() {
                             🔒 {incident.lockedBy}
                           </span>
                         )}
-                        <span>{new Date(incident.timestamp || Date.now()).toLocaleTimeString()}</span>
+                        <span>{new Date(incident.created_at || incident.timestamp || Date.now()).toLocaleTimeString()}</span>
                       </div>
                     </div>
                   ))
@@ -487,8 +487,18 @@ export default function App() {
                     </div>
                     <div className="col-span-2 mt-2">
                       <span className="text-slate-500 block">Logged Time:</span>
-                      <span className="text-slate-300">{new Date(selectedIncident.timestamp || Date.now()).toLocaleString()}</span>
+                      <span className="text-slate-300">{new Date(selectedIncident.created_at || selectedIncident.timestamp || Date.now()).toLocaleString()}</span>
                     </div>
+                    {selectedIncident.source && selectedIncident.source !== 'enterprise-ui' && (
+                      <div className="col-span-2 mt-2">
+                        <span className="text-slate-500 block">Source:</span>
+                        <span className="text-slate-300 font-mono">
+                          {selectedIncident.source}
+                          {selectedIncident.externalId ? ` · ${selectedIncident.externalId}` : ''}
+                          {selectedIncident.requester ? ` · requested by ${selectedIncident.requester}` : ''}
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   <div>
