@@ -64,29 +64,3 @@ temp/
 # Environment file examples (keep for reference)
 !.env.example
 !.env.production.example
-node_modules/
-venv/
-.env
-.env.local
-__pycache__/
-*.pyc
-*.pyo
-dist/
-build/
-.DS_Store
-*.log
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-.coverage
-htmlcov/
-.pytest_cache/
-DESKSOS_Backup_*
-DeskSOS-Enterprise---IT-Operations-Platform/
-
-# Any environment file except the examples
-.env.*
-!.env.example
-!.env.production.example

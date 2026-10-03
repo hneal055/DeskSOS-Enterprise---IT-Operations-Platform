@@ -68,10 +68,6 @@ DESKSOS-ENTERPRISE/
 
    Server will be available at: **http://localhost:5000**
 
-### Option 1b: Windows Dev Scripts (Backend + UI Dashboard)
-
-From the repo root, `.\start-dev.ps1` builds the backend, runs it under PM2 and opens the React dashboard on <http://localhost:3000>. `.\stop-dev.ps1` tears all of it down for a clean restart. See [Local Development on Windows](README.md#local-development-on-windows-powershell-scripts) in the README for options and PM2 troubleshooting.
-
 ### Option 2: Docker Setup (Recommended)
 
 1. **Navigate to project root**

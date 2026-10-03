@@ -1,0 +1,92 @@
+import { Router, Request, Response } from 'express';
+import { listIncidents, createIncident, getIncident, updateIncidentStatus, SEVERITIES, Severity } from '../db';
+
+const router = Router();
+
+// Locks are coordination state for operators currently on shift, so they
+// stay in memory; incidents themselves are persisted in SQLite.
+const activeLocks: Record<number, string> = {}; // incidentId -> operatorName
+
+// GET /api/incidents
+router.get('/', (req: Request, res: Response) => {
+  try {
+    res.json(listIncidents().map(inc => (activeLocks[inc.id] ? { ...inc, lockedBy: activeLocks[inc.id] } : inc)));
+  } catch (err) {
+    res.status(500).json({ error: 'Internal gateway error retrieving incident stream' });
+  }
+});
+
+// POST /api/incidents (Enterprise UI)
+router.post('/', (req: Request, res: Response) => {
+  try {
+    const { title, description, category, severity, location, assignedTo, status } = req.body;
+
+    if (!title || typeof title !== 'string' || !description || typeof description !== 'string') {
+      return res.status(400).json({ error: 'Valid title and description strings are required' });
+    }
+
+    const lat = Number(location?.latitude);
+    const lon = Number(location?.longitude);
+    const newIncident = createIncident({
+      title: title.trim(),
+      description: description.trim(),
+      category: category || 'Infrastructure',
+      severity: SEVERITIES.includes(severity) ? (severity as Severity) : 'MEDIUM',
+      status: status || 'Open',
+      latitude: Number.isFinite(lat) ? lat : undefined,
+      longitude: Number.isFinite(lon) ? lon : undefined,
+      assignedTo: assignedTo || 'Unassigned',
+      source: 'enterprise-ui',
+    });
+
+    req.app.get('io')?.emit('incident:created', newIncident);
+    res.status(201).json(newIncident);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to process incident transmission' });
+  }
+});
+
+// PATCH /api/incidents/:id
+router.patch('/:id', (req: Request, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    const { status } = req.body;
+
+    if (!getIncident(id)) {
+      return res.status(404).json({ error: 'Incident target not found in stream' });
+    }
+
+    if (status === 'Resolved') {
+      // Release lock automatically upon resolution
+      delete activeLocks[id];
+    }
+    const incident = status ? updateIncidentStatus(id, status) : getIncident(id);
+
+    req.app.get('io')?.emit('incident:updated', incident);
+    res.json(incident);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to update incident state' });
+  }
+});
+
+// POST /api/incidents/:id/lock
+router.post('/:id/lock', (req: Request, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    const { operatorName } = req.body;
+
+    if (activeLocks[id] && activeLocks[id] !== operatorName) {
+      return res.status(409).json({ error: `Incident is currently locked by ${activeLocks[id]}` });
+    }
+
+    activeLocks[id] = operatorName || 'Anonymous-Operator';
+
+    req.app.get('io')?.emit('incident:locked', { incidentId: id, lockedBy: activeLocks[id] });
+
+    res.json({ success: true, lockedBy: activeLocks[id] });
+  } catch (error) {
+    res.status(500).json({ error: 'Concurrency lock acquisition failed' });
+  }
+});
+
+export default router;

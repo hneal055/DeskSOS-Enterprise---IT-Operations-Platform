@@ -17,20 +17,28 @@ else {
 
 # 2. Stop and delete PM2 backend process
 Write-Host "[2/4] Stopping PM2 backend service..." -ForegroundColor Yellow
-pm2 stop desksos-backend 2>$null
-pm2 delete desksos-backend 2>$null
+pm2 stop desksos-enterprise-backend 2>$null
+pm2 delete desksos-enterprise-backend 2>$null
 pm2 save 2>$null
 
-# 3. Ensure Port 5000 is fully released
-Write-Host "[3/4] Releasing port 5000..." -ForegroundColor Yellow
-$port = 5000
-$processId = (Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue).OwningProcess
-if ($processId) {
-    Stop-Process -Id $processId -Force
-    Write-Host " -> Terminated lingering process PID $processId on port $port." -ForegroundColor Green
-}
-else {
+# 3. Ensure Port 5100 is fully released
+Write-Host "[3/4] Releasing port 5100..." -ForegroundColor Yellow
+$port = 5100
+$processIds = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue |
+    Select-Object -ExpandProperty OwningProcess -Unique
+if (-not $processIds) {
     Write-Host " -> Port $port is already free." -ForegroundColor Green
+}
+foreach ($processId in $processIds) {
+    # Only stop DeskSOS backends; leave other applications on this port alone
+    $cmd = (Get-CimInstance Win32_Process -Filter "ProcessId=$processId" -ErrorAction SilentlyContinue).CommandLine
+    if ($cmd -match "backend\\server\\dist" -or $cmd -match [regex]::Escape($PSScriptRoot)) {
+        Stop-Process -Id $processId -Force
+        Write-Host " -> Terminated lingering DeskSOS backend PID $processId on port $port." -ForegroundColor Green
+    }
+    else {
+        Write-Host " -> Port $port is held by another application (PID $processId), leaving it running." -ForegroundColor Yellow
+    }
 }
 
 Write-Host "[4/4] Environment successfully shut down and secured." -ForegroundColor Green
