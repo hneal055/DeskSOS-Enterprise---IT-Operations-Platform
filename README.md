@@ -78,12 +78,12 @@ docker-compose up --build
 
 ### Local Development on Windows (PowerShell scripts)
 
-Two scripts in the repo root manage a non-Docker dev session: the backend runs under PM2 and the React client runs with `npm start`. Postgres and Redis must already be reachable at the hosts configured in `backend/server/.env`.
+Two scripts in the repo root manage a non-Docker dev session: the backend runs under PM2 and the React client runs with `npm start`. Postgres and Redis must already be reachable at the hosts configured in `backend/server/.env`. The backend always loads that file (not the repo-root `.env`, which belongs to a different stack), and listens on port 5100 because 5000 is used by the DESKSOS-Desktop backend.
 
 | Script | What it does |
 | ------ | ------------ |
-| `start-dev.ps1` | Builds `backend/server`, starts or restarts the `desksos-enterprise-backend` PM2 process, polls `http://localhost:5000/health`, then opens a PM2 log window and the React client window (<http://localhost:3000>). |
-| `stop-dev.ps1` | Reverses `start-dev.ps1`. It removes `desksos-enterprise-backend` from PM2, closes the log and client windows, frees ports 5000 and 3000, sweeps orphaned PM2 daemons, and verifies the ports are free. Exits non-zero if anything is still running. |
+| `start-dev.ps1` | Builds `backend/server`, (re)registers the `desksos-enterprise-backend` PM2 process, polls `http://localhost:5100/health`, then opens a PM2 log window and the React client window (<http://localhost:3000>). |
+| `stop-dev.ps1` | Reverses `start-dev.ps1`. It removes `desksos-enterprise-backend` from PM2, closes the log and client windows, frees ports 5100 and 3000, sweeps orphaned PM2 daemons, and verifies the ports are free. Exits non-zero if anything is still running. |
 
 **Clean restart of the UI dashboard:**
 
@@ -100,7 +100,7 @@ Two scripts in the repo root manage a non-Docker dev session: the backend runs u
 | `-Backup` | Run `backup-desksos.ps1` before tearing down |
 | `-KillPm2` | Stop **all** PM2 daemons and every app they manage (full PM2 reset, also affects non-DeskSOS PM2 apps) |
 | `-ClearCache` | Delete `client/node_modules/.cache` (fixes stale React builds) |
-| `-Force` | Kill whatever holds ports 5000/3000, even if it doesn't look like DeskSOS |
+| `-Force` | Kill whatever holds ports 5100/3000, even if it doesn't look like DeskSOS |
 
 The PM2 process name is deliberately `desksos-enterprise-backend`. The sibling `DESKSOS-Desktop` project registers its own backend as `desksos-backend` (port 5443), and sharing that name made `start-dev.ps1` restart the wrong app. Keep PM2 names unique per project.
 

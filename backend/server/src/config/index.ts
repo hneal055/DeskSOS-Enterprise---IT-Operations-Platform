@@ -3,7 +3,10 @@ import path from "path";
 
 // Load .env before reading process.env below; config is imported before the
 // index.ts body runs, so loading it there was too late.
-dotenv.config();
+// Resolve backend/server/.env from this file (src/config or dist/config) rather
+// than the process cwd: PM2 launched from the repo root otherwise picks up the
+// unrelated root .env (PORT=8000) and crashes with EADDRINUSE.
+dotenv.config({ path: path.resolve(__dirname, "..", "..", ".env") });
 
 export const config = {
   nodeEnv: process.env.NODE_ENV || "development",

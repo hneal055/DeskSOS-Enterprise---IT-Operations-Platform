@@ -39,13 +39,13 @@ Pop-Location
 
 # Step 2: Start or Restart PM2 Backend Process
 Write-Host "[2/4] Managing PM2 Backend Service..." -ForegroundColor Yellow
-pm2 describe desksos-enterprise-backend | Out-Null
-if ($LASTEXITCODE -ne 0) {
-    pm2 start backend\server\dist\index.js --name desksos-enterprise-backend
+# Always re-register rather than 'pm2 restart': restart reuses the cwd and env
+# saved when the process was first created, which can be stale.
+pm2 describe desksos-enterprise-backend 2>&1 | Out-Null
+if ($LASTEXITCODE -eq 0) {
+    pm2 delete desksos-enterprise-backend | Out-Null
 }
-else {
-    pm2 restart desksos-enterprise-backend
-}
+pm2 start "$PSScriptRoot\backend\server\dist\index.js" --name desksos-enterprise-backend --cwd "$PSScriptRoot\backend\server"
 
 # Step 3: Diagnostic Health Check Loop
 Write-Host "[3/4] Performing API Gateway & Services Diagnostic Check..." -ForegroundColor Yellow
