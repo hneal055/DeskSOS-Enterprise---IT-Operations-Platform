@@ -66,6 +66,8 @@ $pm2Home = if ($env:PM2_HOME) { $env:PM2_HOME } else { Join-Path $env:USERPROFIL
 $pidFile = Join-Path $pm2Home "pm2.pid"
 $pidFileDaemon = if (Test-Path $pidFile) { [int](Get-Content $pidFile -ErrorAction SilentlyContinue | Select-Object -First 1) } else { 0 }
 
+# Callers must wrap this in @(): Windows PowerShell 5.1 unrolls a one-item array
+# returned from a function, and a lone CimInstance there has no .Count.
 function Get-Pm2Daemons {
     @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" |
         Where-Object { $_.CommandLine -match "pm2\\lib\\Daemon\.js" })
@@ -74,7 +76,7 @@ function Get-ChildCount([int]$ProcessId) {
     @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$ProcessId" -ErrorAction SilentlyContinue).Count
 }
 
-$pm2Daemons = Get-Pm2Daemons
+$pm2Daemons = @(Get-Pm2Daemons)
 $pm2Running = $pm2Available -and $pm2Daemons.Count -ge 1
 $pm2Healthy = $pm2Daemons.Count -eq 1 -and $pm2Daemons[0].ProcessId -eq $pidFileDaemon
 # If PM2's pipe exists but no daemon is visible, it belongs to a daemon started
@@ -185,7 +187,7 @@ foreach ($port in $Ports) {
 
 # Step 5: PM2 daemon cleanup and optional cache cleanup
 Write-Host "`n[5/6] PM2 daemon and cache cleanup..." -ForegroundColor Yellow
-$pm2Daemons = Get-Pm2Daemons
+$pm2Daemons = @(Get-Pm2Daemons)
 if ($KillPm2) {
     # Kill daemons directly rather than via 'pm2 kill', which can itself spawn
     # a new daemon when the pipe is contended. /T also stops managed apps.
@@ -232,7 +234,7 @@ foreach ($port in $Ports) {
         $stillBusy += $port
     }
 }
-$remainingDaemons = (Get-Pm2Daemons).Count
+$remainingDaemons = @(Get-Pm2Daemons).Count
 if (-not $DryRun) {
     Write-Host "  -> PM2 daemons remaining: $remainingDaemons" -ForegroundColor Gray
 }
