@@ -236,6 +236,8 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 | 2026-10-04 | 0.4 No secrets in backups; `backups/` ignored by git | ✅ Verified |
 | 2026-10-04 | 0.5 Desktop backend: 0 production vulnerabilities | ✅ Verified |
 | 2026-10-04 | 0.7 Broken Docker files removed; docs match reality | ✅ Verified |
+| 2026-10-04 | 0.2 Desktop production running | ✅ Verified |
+| 2026-10-04 | 0.1 Scheduled backup and health monitor working | ✅ Verified (boot task pending a reboot test) |
 
 ### 0.3 Enterprise backups capture real data
 
@@ -296,3 +298,17 @@ A task counts as done only once its verification has passed. "Implemented" isn't
   4. Verify: `Start-ScheduledTask "DeskSOS Daily Backup"` and `Start-ScheduledTask "DeskSOS Health Monitor"`, then run `Get-ScheduledTaskInfo -TaskName "DeskSOS Daily Backup"` and the same for the monitor task (one name per call). Both must show `LastTaskResult` 0
 - **0.2 done (2026-10-04 10:22):** Desktop production is up. `https://FORD-DC01:5443/health` returns `ok` with the database `ok`, and two production backups were taken at startup.
 - **Owner, 0.6:** merge Desktop PR #1, retarget PR #2 to `main`, merge.
+
+### 0.1 and 0.2 completed (administrator steps)
+
+- **Change:** installed PowerShell 7.6.6 from the official MSI (`C:\Program Files\PowerShell\7\pwsh.exe`) alongside the Store version, then re-registered the three tasks with the fixed `register-tasks.ps1`. winget wasn't usable: its default package is the Store-style MSIX build, which reported "already installed". Desktop production was started with `start-production.ps1`.
+- **Verification:**
+  - All three tasks now launch `C:\Program Files\PowerShell\7\pwsh.exe`.
+  - **Daily Backup** finished with result 0 at 10:34 and produced `desksos-2026-10-04T15-34-35.db`, which passes `integrity_check` and contains 22 tickets and 2 users.
+  - **Health Monitor** finished with result 0 at 10:35 and recorded `{"up": true}` in `monitor-state.json`. The monitor only writes `monitor.log` on alerts, so an empty log means healthy.
+  - Production `https://FORD-DC01:5443/health` returns `ok`.
+  - **Backend Startup** shows "has not run" (`267011`) because it only triggers at boot. **It still needs a reboot test**, which is part of the Phase 2 exit gate.
+- **Goal impact:** Desktop production is back for *users*. It's now backed up nightly at 02:00 and checked every 5 minutes without anyone signed in, so *administrators* no longer depend on someone remembering to do it. This moves forward go-live items "daily backups running", "health monitor tested" and "services come back after a reboot" (the last one pending the reboot test).
+- **Found along the way, for Phase 3.4 / decision D6:** the monitor's email alerts aren't configured (no `ALERT_SMTP_*` or `ALERT_TO`), so an outage is only written to `monitor.log` and nobody is notified.
+
+**Phase 0 status:** everything except 0.6 is done and verified. 0.6 is waiting on the owner to merge Desktop PRs #1 and #2.
