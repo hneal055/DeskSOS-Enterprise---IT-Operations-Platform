@@ -281,4 +281,17 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 - **Goal impact:** *administrators* and new developers can follow the README without hitting dead ends, and are no longer told the system has security controls it lacks. That matters most before Phase 1, so nobody exposes Enterprise believing it's protected. This supports the Operations go-live item (accurate runbooks).
 - **Found along the way, for Phase 1:** `backend/server/src/config/database.ts` (Postgres pool) is never imported, and the `pg` and `redis` dependencies are unused. Remove them during Phase 1 cleanup.
 
-**Phase 0 status:** the Dev tasks (0.3, 0.4, 0.5, 0.7) are done and verified. Remaining: 0.1 and 0.2 (Admin, in an elevated window) and 0.6 (Owner merges Desktop PRs #1 and #2).
+### 0.1 (developer part) Scheduled tasks use a PowerShell that can run them
+
+- **Change** (Desktop repo, PR #2 branch): `register-tasks.ps1` deliberately preferred the Store's `WindowsApps\pwsh.exe` shortcut. Scheduled tasks that run with nobody signed in (S4U) can't launch it, which is the cause of the `0x80070005` failures. The script now prefers the MSI install at `C:\Program Files\PowerShell\7\pwsh.exe`, which has a stable path and works in S4U tasks. If only the Store version exists, it warns and prints the `winget` command to install the MSI.
+- **Verification:** the script parses cleanly, and the selection logic picks MSI when present and Store-only with a warning (this server today). **Not yet verified end to end:** that needs the administrator steps below, after which each task must finish with result 0.
+- **Goal impact:** this is what keeps Desktop production alive without anyone watching: boot start, nightly backups and health alerts for *administrators*. It unblocks go-live items "services come back after a reboot", "daily backups running" and "alerts tested".
+
+**Phase 0 status:** the developer tasks (0.3, 0.4, 0.5, 0.7, and the developer part of 0.1) are done and verified. Remaining:
+
+- **Admin (elevated window), 0.1 and 0.2:**
+  1. `winget install --id Microsoft.PowerShell --source winget`
+  2. `cd C:\Projects\DESKSOS-Desktop\backend` then `pwsh scripts/register-tasks.ps1 -BackendAutostart -HealthUrl https://FORD-DC01:5443/health`. It must print `Tasks will use: C:\Program Files\PowerShell\7\pwsh.exe`
+  3. `pwsh scripts/start-production.ps1`
+  4. Verify: `Start-ScheduledTask "DeskSOS Daily Backup"` and `Start-ScheduledTask "DeskSOS Health Monitor"`, then `Get-ScheduledTaskInfo` shows `LastTaskResult` 0 for both
+- **Owner, 0.6:** merge Desktop PR #1, retarget PR #2 to `main`, merge.
