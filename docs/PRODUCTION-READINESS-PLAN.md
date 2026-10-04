@@ -232,3 +232,22 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 | Date | Task | Status |
 |---|---|---|
 | 2026-10-04 | Plan drafted | ✅ |
+| 2026-10-04 | 0.3 Enterprise backups capture real data | ✅ Verified |
+| 2026-10-04 | 0.4 No secrets in backups; `backups/` ignored by git | ✅ Verified |
+
+### 0.3 Enterprise backups capture real data
+
+- **Change:** new `backend/server/scripts/backup-db.js` takes an online backup through SQLite's backup API, which includes changes still in the `-wal` file. Each backup is saved as one self-contained file, checked with `PRAGMA integrity_check`, and the oldest beyond 14 are pruned. `backup-desksos.ps1` now calls it and returns its exit code.
+- **Verification:**
+  - Backup runs and reports "integrity ok, 5 incidents".
+  - A restore comparison against the live database matches: 5 incidents, highest ID 5.
+  - The backup is a single 24 KB file. The old file copies were 4 KB with **no tables at all**.
+  - Pruning removes old backups along with any side files.
+  - `stop-dev.ps1 -Backup` still calls the script.
+- **Goal impact:** *Administrators* can now restore incident data, which wasn't possible before because every old backup was empty. This is the foundation for go-live items "daily backups running" and "restore drill passed" (Phase 3 adds scheduling and off-machine copies). *Clients'* incident records are protected against data loss.
+
+### 0.4 No secrets in backups; `backups/` ignored by git
+
+- **Change:** `backups/` added to `.gitignore`. The backup script no longer copies `.env` files. The 22 old backup folders were removed after each was checked: they held only `.env` copies and empty database files.
+- **Verification:** `git check-ignore` confirms `backups/` is ignored; `backups/` holds 0 `.env` files and only the verified backup; `git status` shows no backup files.
+- **Goal impact:** removes the risk of committing secrets to GitHub with `git add -A`, and of keeping 22 stray copies of them on disk. Moves forward go-live item "no secrets outside `.env`" (*administrators*, security).
