@@ -39,7 +39,7 @@
 
 \\\
 DESKSOS-ENTERPRISE/
-├── server/                      # Node.js backend
+├── backend/server/              # Node.js backend
 │   ├── src/
 │   ├── Dockerfile
 │   ├── package.json

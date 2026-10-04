@@ -221,7 +221,7 @@ DESKSOS-ENTERPRISE/
 │   │   └── App.tsx              # Root component
 │   ├── package.json
 │   └── vite.config.ts
-├── server/                       # Node.js backend
+├── backend/server/               # Node.js backend
 │   ├── src/
 │   │   ├── routes/              # API routes
 │   │   │   ├── auth.ts
@@ -314,12 +314,12 @@ docker-compose -f docker-compose.prod.yml down
 **1. Install Dependencies**
 ```bash
 # Backend
-cd server
+cd backend/server
 npm install
 npm run build
 
 # Frontend
-cd ../client
+cd ../../client
 npm install
 npm run build
 ```
@@ -339,8 +339,8 @@ psql desksos_db < database/init.sql
 redis-server
 
 # Backend (with PM2)
-cd server
-pm2 start dist/index.js --name desksos-api
+cd backend/server
+pm2 start dist/index.js --name desksos-enterprise-backend
 
 # Frontend (via Nginx)
 # Configure Nginx to serve client/dist/
@@ -384,7 +384,7 @@ pm2 start dist/index.js --name desksos-api
 
 ```bash
 # Backend tests
-cd server
+cd backend/server
 npm test
 
 # Frontend tests

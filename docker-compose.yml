@@ -18,7 +18,7 @@ services:
 
   server:
     build:
-      context: ./server
+      context: ./backend/server
       dockerfile: Dockerfile
     container_name: desksos_server
     environment:
@@ -36,7 +36,7 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - ./server/src:/app/src
+      - ./backend/server/src:/app/src
     command: npm run dev
 
   nginx:
@@ -110,7 +110,7 @@ services:
 
   server:
     build:
-      context: ./server
+      context: ./backend/server
     container_name: desksos-server
     ports:
       - "32769:8000"

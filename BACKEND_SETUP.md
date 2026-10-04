@@ -5,7 +5,7 @@
 ### Project Structure
 ```
 DESKSOS-ENTERPRISE/
-├── server/
+├── backend/server/
 │   ├── src/
 │   │   ├── config/
 │   │   │   ├── database.ts      # PostgreSQL connection pool

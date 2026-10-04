@@ -35,7 +35,7 @@ services:
 
   server:
     build:
-      context: ./server
+      context: ./backend/server
       dockerfile: Dockerfile
     container_name: desksos_server_prod
     restart: unless-stopped
