@@ -290,8 +290,9 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 **Phase 0 status:** the developer tasks (0.3, 0.4, 0.5, 0.7, and the developer part of 0.1) are done and verified. Remaining:
 
 - **Admin (elevated window), 0.1 and 0.2:**
-  1. `winget install --id Microsoft.PowerShell --source winget`
+  1. `winget install --id Microsoft.PowerShell --source winget --installer-type wix`. The `--installer-type wix` flag matters: winget's default for this package is the Store-style MSIX build, which is already installed and can't run S4U tasks
   2. `cd C:\Projects\DESKSOS-Desktop\backend` then `pwsh scripts/register-tasks.ps1 -BackendAutostart -HealthUrl https://FORD-DC01:5443/health`. It must print `Tasks will use: C:\Program Files\PowerShell\7\pwsh.exe`
   3. `pwsh scripts/start-production.ps1`
-  4. Verify: `Start-ScheduledTask "DeskSOS Daily Backup"` and `Start-ScheduledTask "DeskSOS Health Monitor"`, then `Get-ScheduledTaskInfo` shows `LastTaskResult` 0 for both
+  4. Verify: `Start-ScheduledTask "DeskSOS Daily Backup"` and `Start-ScheduledTask "DeskSOS Health Monitor"`, then run `Get-ScheduledTaskInfo -TaskName "DeskSOS Daily Backup"` and the same for the monitor task (one name per call). Both must show `LastTaskResult` 0
+- **0.2 done (2026-10-04 10:22):** Desktop production is up. `https://FORD-DC01:5443/health` returns `ok` with the database `ok`, and two production backups were taken at startup.
 - **Owner, 0.6:** merge Desktop PR #1, retarget PR #2 to `main`, merge.
