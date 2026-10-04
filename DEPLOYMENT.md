@@ -1,5 +1,7 @@
 # DESKSOS Production Deployment Guide
 
+> ⚠️ **Outdated (2026-10-04). Don't follow this guide.** It describes a Docker Compose + PostgreSQL/Redis + Nginx deployment that no longer matches the application (SQLite, PM2), and its compose files have been removed. The supported production setup is defined in [docs/PRODUCTION-READINESS-PLAN.md](docs/PRODUCTION-READINESS-PLAN.md), Phase 2.
+
 ## Prerequisites
 
 - Docker Desktop installed and running

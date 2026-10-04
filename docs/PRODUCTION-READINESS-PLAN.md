@@ -234,6 +234,8 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 | 2026-10-04 | Plan drafted | ✅ |
 | 2026-10-04 | 0.3 Enterprise backups capture real data | ✅ Verified |
 | 2026-10-04 | 0.4 No secrets in backups; `backups/` ignored by git | ✅ Verified |
+| 2026-10-04 | 0.5 Desktop backend: 0 production vulnerabilities | ✅ Verified |
+| 2026-10-04 | 0.7 Broken Docker files removed; docs match reality | ✅ Verified |
 
 ### 0.3 Enterprise backups capture real data
 
@@ -251,3 +253,32 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 - **Change:** `backups/` added to `.gitignore`. The backup script no longer copies `.env` files. The 22 old backup folders were removed after each was checked: they held only `.env` copies and empty database files.
 - **Verification:** `git check-ignore` confirms `backups/` is ignored; `backups/` holds 0 `.env` files and only the verified backup; `git status` shows no backup files.
 - **Goal impact:** removes the risk of committing secrets to GitHub with `git add -A`, and of keeping 22 stray copies of them on disk. Moves forward go-live item "no secrets outside `.env`" (*administrators*, security).
+
+### 0.5 Desktop backend: 0 production vulnerabilities
+
+- **Change** (Desktop repo, PR #2 branch): `npm audit fix` updated `engine.io` (socket.io, high), `qs`, `morgan` and `ip-address`. The `uuid` package was replaced with Node's built-in `crypto.randomUUID()`, which produces the same v4 format. npm's only uuid fix was a forced major upgrade.
+- **Verification:**
+  - Production audit went from 5 findings (1 high) to **0**.
+  - `tsc` clean; 73/73 tests pass.
+  - Generated IDs match the v4 UUID format.
+  - The live dev backend reloaded, reports healthy, and sign-in works.
+- **Goal impact:** the live socket that *users'* Desktop apps connect to no longer has a known remotely triggerable crash. Go-live item "production dependency audit shows 0 high or critical findings" is now met for both backends and the Desktop app. The Enterprise client remains, and Phase 2.1 handles it.
+
+### 0.7 Broken Docker files removed; docs match reality
+
+- **Change:**
+  - Removed the root `docker-compose.yml` (couldn't be parsed) and `docker-compose.prod.yml` (pointed at a nonexistent client path).
+  - Rewrote `README.md` so it describes the actual app (SQLite, PM2, the working incident and ingest features) and marks sign-in, metrics and chat as placeholders.
+  - Replaced the README's Security section, which claimed rate limiting, HTTPS and bcrypt that don't exist, with an honest status table.
+  - Removed the unused Postgres `DB_*` settings from `.env.example`.
+  - Added "outdated" banners to `BACKEND_SETUP.md`, `DEPLOYMENT.md` and `DEPLOYMENT_STATUS.md`.
+- **Verification:**
+  - 0 stale commands left in the README (`docker-compose`, `createdb`, `psql`, `redis-server` and so on).
+  - 0 references to the removed compose files in scripts, CI or active docs.
+  - Every local link in the README resolves.
+  - The backend boots using only `.env.example` settings and reports healthy; ingest correctly returns 503 until a key is set.
+  - Typecheck clean; 10/10 tests pass.
+- **Goal impact:** *administrators* and new developers can follow the README without hitting dead ends, and are no longer told the system has security controls it lacks. That matters most before Phase 1, so nobody exposes Enterprise believing it's protected. This supports the Operations go-live item (accurate runbooks).
+- **Found along the way, for Phase 1:** `backend/server/src/config/database.ts` (Postgres pool) is never imported, and the `pg` and `redis` dependencies are unused. Remove them during Phase 1 cleanup.
+
+**Phase 0 status:** the Dev tasks (0.3, 0.4, 0.5, 0.7) are done and verified. Remaining: 0.1 and 0.2 (Admin, in an elevated window) and 0.6 (Owner merges Desktop PRs #1 and #2).

@@ -1,5 +1,7 @@
 # DESKSOS Enterprise - Backend Setup Complete
 
+> ⚠️ **Outdated (2026-10-04).** This describes an earlier Docker + PostgreSQL/Redis design. The backend now stores data in SQLite and runs under PM2. For current setup see [README.md](README.md); for the road to production see [docs/PRODUCTION-READINESS-PLAN.md](docs/PRODUCTION-READINESS-PLAN.md).
+
 ## ✅ What Has Been Created
 
 ### Project Structure

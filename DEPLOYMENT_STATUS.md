@@ -1,5 +1,7 @@
 # DESKSOS Production Deployment Status
 
+> ⚠️ **Outdated (2026-10-04).** This status report covers an earlier Docker + PostgreSQL/Redis design that was never deployed and no longer matches the application. Current status and progress are tracked in [docs/PRODUCTION-READINESS-PLAN.md](docs/PRODUCTION-READINESS-PLAN.md), section 10.
+
 ## 🎯 Deployment Goal
 Convert fully functional local development system (Dashboard + Team Chat on localhost) to production-ready Docker containerized deployment with HTTPS, health checks, and security hardening.
 

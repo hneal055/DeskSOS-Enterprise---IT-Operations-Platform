@@ -1,84 +1,49 @@
 # DeskSOS Enterprise - IT Operations Platform
 
 ![Version](https://img.shields.io/badge/version-1.0.0-blue)
-![Node.js](https://img.shields.io/badge/Node.js-22-green)
-![React](https://img.shields.io/badge/React-18.3-61dafb)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue)
-![Redis](https://img.shields.io/badge/Redis-7-red)
-![Docker](https://img.shields.io/badge/Docker-ready-blue)
+![Node.js](https://img.shields.io/badge/Node.js-22%2B-green)
+![React](https://img.shields.io/badge/React-18-61dafb)
+![SQLite](https://img.shields.io/badge/SQLite-better--sqlite3-003b57)
+![Status](https://img.shields.io/badge/status-pre--production-orange)
 
-Full-stack enterprise web platform for IT operations teams. Built with Node.js, React, PostgreSQL, and Redis. Features real-time collaboration, ticketing system, chat, and comprehensive dashboard.
+Real-time incident operations dashboard for IT teams. It receives incidents from people and from DeskSOS Desktop, shows them live, and raises audible alerts for critical ones.
 
-## 🌐 Overview
+> **Status: pre-production.** The incident dashboard and ingest API work, but sign-in is still a placeholder and the API isn't yet protected. Don't expose it to other users or networks yet. [docs/PRODUCTION-READINESS-PLAN.md](docs/PRODUCTION-READINESS-PLAN.md) tracks the work to make it production-ready.
 
-DeskSOS Enterprise is a comprehensive web-based platform for managing IT support operations at scale. Designed for teams that need centralized ticketing, real-time collaboration, and operational visibility.
+## ✨ What works today
 
-**Perfect for:**
-- IT Operations teams managing enterprise infrastructure
-- Help Desk departments with distributed technicians
-- MSP (Managed Service Provider) operations
-- Multi-site IT support coordination
+- **Live incident stream:** incidents appear instantly in every open dashboard over Socket.IO (`incident:created`, `incident:updated`, `incident:locked`)
+- **Incident logging:** title, description, category, severity (LOW, MEDIUM, HIGH, CRITICAL), assignee and location
+- **Critical alerts:** an audible tone and a spoken announcement for CRITICAL incidents, after you click "Arm Audio"
+- **Incident inspection console:** source, external ticket ID, requester, status changes and locking
+- **DeskSOS Desktop bridge:** `POST /api/ingest/incidents` accepts tickets forwarded by the DeskSOS Desktop backend. It's protected by an API key and safe to retry (no duplicates)
+- **Persistent storage** in SQLite (`backend/server/data/enterprise.db`)
+- **Verified backups** with `backup-desksos.ps1`
 
-## ✨ Key Features
+**Placeholders, not production features yet:** sign-in (`/api/auth/*` accepts any credentials), user profile, dashboard metrics and team chat return sample data.
 
-### 📊 Operations Dashboard
-- Real-time metrics and KPIs
-- Ticket status visualization
-- Team performance analytics
-- System health monitoring
-- Customizable widgets
+## 🚀 Quick Start (Windows development)
 
-### 🎫 Ticketing System
-- Create, assign, and track support tickets
-- Priority and category management
-- Status workflows (Open → In Progress → Resolved → Closed)
-- Attachment support
-- Comment threads
-- Email notifications
+Requirements: Windows 10/11, Node.js 22+, PM2 (`npm install -g pm2`), PowerShell.
 
-### 💬 Team Chat
-- Real-time messaging with WebSocket
-- Channel-based organization
-- User presence indicators (online/offline/away)
-- Typing indicators
-- Message history
-- @mentions and notifications
-
-### 👥 User Management
-- Role-based access control (Admin, Technician, User)
-- User authentication with JWT
-- Profile management
-- Activity tracking
-- Audit logs
-
-### 🔔 Notifications
-- Real-time push notifications
-- Email alerts
-- Ticket assignments
-- Status updates
-- System announcements
-
-## 🚀 Quick Start
-
-### Development Mode
-
-```bash
-# Clone repository
+```powershell
 git clone https://github.com/hneal055/DeskSOS-Enterprise---IT-Operations-Platform.git
 cd DeskSOS-Enterprise---IT-Operations-Platform
 
-# Start with Docker Compose
-docker-compose up --build
+# One-time setup
+cd backend\server; npm install; Copy-Item .env.example .env; cd ..\..
+cd client; npm install; cd ..
 
-# Access application
-# Frontend: http://localhost:3000
-# Backend API: http://localhost:5000
-# API Docs: http://localhost:5000/
+# Start (from an Administrator PowerShell window, see below)
+.\start-dev.ps1
 ```
+
+- Dashboard: <http://localhost:3000>
+- API: <http://localhost:5100> (health check: <http://localhost:5100/health>)
 
 ### Local Development on Windows (PowerShell scripts)
 
-Two scripts in the repo root manage a non-Docker dev session: the backend runs under PM2 and the React client runs with `npm start`. Postgres and Redis must already be reachable at the hosts configured in `backend/server/.env`. The backend always loads that file (not the repo-root `.env`, which belongs to a different stack), and listens on port 5100 because 5000 is used by the DESKSOS-Desktop backend.
+Two scripts in the repo root manage a dev session: the backend runs under PM2 and the React client runs with `npm start`. The backend always loads `backend/server/.env` (not the repo-root `.env`, which belongs to a different stack). It listens on port 5100 because 5000 is used by the DESKSOS-Desktop backend.
 
 | Script | What it does |
 | ------ | ------------ |
@@ -104,361 +69,135 @@ Two scripts in the repo root manage a non-Docker dev session: the backend runs u
 
 The PM2 process name is deliberately `desksos-enterprise-backend`. The sibling `DESKSOS-Desktop` project registers its own backend as `desksos-backend` (port 5443), and sharing that name made `start-dev.ps1` restart the wrong app. Keep PM2 names unique per project.
 
-Docker containers are never touched. The Postgres and Redis containers may be shared with other projects; stop them with `docker compose down` if you mean to.
+Docker containers are never touched by these scripts.
 
 #### Troubleshooting: `connect EPERM \\.\pipe\rpc.sock`
 
 On Windows, PM2 communicates through the named pipe `\\.\pipe\rpc.sock`. If the PM2 daemon was started from an **elevated** ("Run as administrator") terminal, a non-elevated terminal can't connect to it. Each failed `pm2` call then starts a new daemon that also can't take the pipe, and these orphans pile up.
 
-- Run `start-dev.ps1` and `stop-dev.ps1` from a terminal with the **same elevation** as the one that first started PM2. Pick one, always elevated or never, and stick with it.
+- Run `start-dev.ps1` and `stop-dev.ps1` from a terminal with the **same elevation** as the one that first started PM2. Pick one, always elevated or never, and stick with it. VS Code's Code Runner is never elevated.
 - Both scripts detect this situation and exit with guidance instead of calling `pm2`.
 - `stop-dev.ps1` removes orphaned daemons automatically. To start completely fresh, run `.\stop-dev.ps1 -KillPm2` from an elevated terminal.
 
-### Production Deployment
+### Production deployment
 
-```bash
-# Build production containers
-docker-compose -f docker-compose.prod.yml build
-
-# Start production stack
-docker-compose -f docker-compose.prod.yml up -d
-
-# Access via Nginx (with SSL)
-# https://your-domain.com
-```
-
-## 📋 System Requirements
-
-### For Docker Deployment
-
-| Component | Requirement |
-|-----------|-------------|
-| **Docker** | 20.10+ |
-| **Docker Compose** | 2.0+ |
-| **RAM** | 4 GB minimum (8 GB recommended) |
-| **Disk Space** | 10 GB for images and data |
-| **CPU** | 2 cores minimum (4 cores recommended) |
-
-### For Manual Deployment
-
-| Component | Version |
-|-----------|---------|
-| **Node.js** | 22+ |
-| **PostgreSQL** | 16+ |
-| **Redis** | 7+ |
-| **Nginx** | 1.24+ (optional, for reverse proxy) |
+Not supported yet. Production setup (HTTPS, a production build of the dashboard served by the backend, restart on boot, monitoring) is Phase 2 of the [readiness plan](docs/PRODUCTION-READINESS-PLAN.md). The earlier Docker Compose files were removed because they no longer matched the application.
 
 ## 🏗️ Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                  Nginx (SSL/TLS)                    │
-│              Reverse Proxy & Load Balancer          │
-└─────────────────────┬───────────────────────────────┘
-                      │
-        ┌─────────────┴──────────────┐
-        │                            │
-┌───────▼────────┐          ┌────────▼────────┐
-│  React Client  │          │  Express Server │
-│   (Port 3000)  │◄────────►│   (Port 5000)   │
-│                │ WebSocket│                 │
-│  - Dashboard   │ Socket.io│  - REST API     │
-│  - Chat UI     │          │  - WebSocket    │
-│  - Ticketing   │          │  - Auth/JWT     │
-└────────────────┘          └─────┬───┬───────┘
-                                  │   │
-                      ┌───────────┘   └─────────┐
-                      │                          │
-              ┌───────▼────────┐        ┌───────▼──────┐
-              │   PostgreSQL   │        │    Redis     │
-              │   (Port 5432)  │        │  (Port 6379) │
-              │                │        │              │
-              │  - Users       │        │  - Sessions  │
-              │  - Tickets     │        │  - Cache     │
-              │  - Messages    │        │  - Pub/Sub   │
-              └────────────────┘        └──────────────┘
+┌──────────────────────┐   HTTP + Socket.IO    ┌──────────────────────────┐
+│  React dashboard     │◄─────────────────────►│  Express API (port 5100) │
+│  (dev server :3000,  │   /api proxied to     │  - REST /api/*           │
+│   proxies to :5100)  │   the API             │  - Socket.IO events      │
+└──────────────────────┘                       │  - /health               │
+                                               └─────┬───────────────▲────┘
+                                                     │               │ POST /api/ingest/incidents
+                                          better-sqlite3             │ (X-API-Key)
+                                                     │               │
+                                       ┌─────────────▼──┐   ┌────────┴──────────────┐
+                                       │ SQLite          │   │ DeskSOS Desktop       │
+                                       │ enterprise.db   │   │ backend (bridge)      │
+                                       └─────────────────┘   └───────────────────────┘
 ```
 
 ## 🛠️ Technology Stack
 
-### Frontend
-- **React 18.3** - UI library
-- **TypeScript** - Type safety
-- **Vite 6.4** - Build tool
-- **Tailwind CSS** - Styling
-- **TanStack Query** - Data fetching
-- **Socket.io Client** - WebSocket communication
-
-### Backend
-- **Node.js 22** - Runtime
-- **Express 4.21** - Web framework
-- **TypeScript** - Type safety
-- **Socket.io 4.8** - WebSocket server
-- **JWT** - Authentication
-- **Bcrypt** - Password hashing
-
-### Database & Cache
-- **PostgreSQL 16** - Primary database
-- **Redis 7** - Caching and pub/sub
-- **node-postgres (pg)** - PostgreSQL client
-
-### Infrastructure
-- **Docker & Docker Compose** - Containerization
-- **Nginx** - Reverse proxy and SSL termination
-- **PM2** - Process management (optional)
+- **Backend:** Node.js 22+, Express 4, TypeScript, Socket.IO 4, better-sqlite3, jsonwebtoken
+- **Frontend:** React 18 (Create React App), Socket.IO client, Tailwind (CDN in development)
+- **Process management:** PM2
+- **Tests and CI:** Jest and supertest (backend), GitHub Actions
 
 ## 📦 Project Structure
 
 ```
-DESKSOS-ENTERPRISE/
-├── client/                       # React frontend
+DESKSOS/
+├── backend/server/             # Express API (TypeScript)
 │   ├── src/
-│   │   ├── components/          # UI components
-│   │   ├── pages/               # Page components
-│   │   ├── services/            # API clients
-│   │   ├── hooks/               # Custom React hooks
-│   │   ├── store/               # State management
-│   │   └── App.tsx              # Root component
-│   ├── package.json
-│   └── vite.config.ts
-├── backend/server/               # Node.js backend
-│   ├── src/
-│   │   ├── routes/              # API routes
-│   │   │   ├── auth.ts
-│   │   │   ├── dashboard.ts
-│   │   │   ├── chat.ts
-│   │   │   └── user.ts
-│   │   ├── services/            # Business logic
-│   │   │   ├── socket.ts        # WebSocket handling
-│   │   │   └── auth.ts
-│   │   ├── config/              # Configuration
-│   │   │   ├── database.ts
-│   │   │   └── index.ts
-│   │   └── index.ts             # Entry point
-│   ├── package.json
-│   └── tsconfig.json
-├── database/                     # Database migrations
-│   └── init.sql
-├── nginx/                        # Nginx configuration
-│   ├── nginx.conf
-│   └── ssl/                      # SSL certificates
-├── docker-compose.yml           # Development
-├── docker-compose.prod.yml      # Production
-├── .env.example                 # Environment template
-├── .env.production              # Production config
-└── README.md                    # This file
+│   │   ├── routes/             # incidents, ingest, auth, dashboard, chat, user
+│   │   ├── middleware/         # apiKey (ingest auth)
+│   │   ├── services/socket.ts  # Socket.IO events
+│   │   ├── config/index.ts     # Loads backend/server/.env
+│   │   ├── db.ts               # SQLite schema and queries
+│   │   └── index.ts            # Entry point
+│   ├── scripts/backup-db.js    # Verified online backup
+│   ├── tests/                  # Jest + supertest
+│   └── .env.example
+├── client/                     # React dashboard (Create React App)
+├── docs/                       # Plans and API reference
+├── start-dev.ps1 / stop-dev.ps1        # Dev session start / teardown
+├── start-backend.ps1 / stop-backend.ps1
+└── backup-desksos.ps1          # Database backup
 ```
 
 ## 🔧 Configuration
 
-### Environment Variables
+Copy `backend/server/.env.example` to `backend/server/.env`. That file is ignored by git.
 
-Create `.env` file:
+| Variable | Purpose | Default |
+|---|---|---|
+| `PORT` | API port | `5100` |
+| `NODE_ENV` | `development` or `production` | `development` |
+| `JWT_SECRET` | Token signing secret. **Set a long random value**; the built-in fallback is insecure and will be removed (plan task 1.2) | insecure fallback |
+| `DATABASE_PATH` | SQLite database file | `backend/server/data/enterprise.db` |
+| `INGEST_API_KEY` | Shared key DeskSOS Desktop sends as `X-API-Key`. Ingest is disabled while unset | unset |
 
-```bash
-# Database
-DB_HOST=postgres
-DB_PORT=5432
-DB_NAME=desksos_db
-DB_USER=desksos_user
-DB_PASSWORD=your-secure-password
+Generate secrets with:
+`node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`
 
-# Redis
-REDIS_HOST=redis
-REDIS_PORT=6379
-REDIS_PASSWORD=your-redis-password
+## 💾 Backups
 
-# JWT
-JWT_SECRET=your-super-secret-jwt-key-change-in-production
-
-# API
-NODE_ENV=production
-PORT=5000
-API_BASE_URL=http://nginx/api
-WS_URL=ws://localhost/socket.io
-
-# Email (SMTP)
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=notifications@company.com
-SMTP_PASSWORD=your-smtp-password
-SMTP_FROM=noreply@desksos.com
+```powershell
+.\backup-desksos.ps1
 ```
 
-## 🚀 Deployment
+This takes an online backup of the SQLite database (safe while the server runs), checks its integrity, saves it as one file in `backups\` (ignored by git), and keeps the newest 14. It doesn't back up `.env` files; keep secrets in a password manager.
 
-### Docker Compose (Recommended)
+## 📡 API
 
-**Development:**
-```bash
-docker-compose up --build
-```
+| Method & path | Auth | Status |
+|---|---|---|
+| `GET /health` | none | ✅ Checks the database; 503 if unavailable |
+| `GET /api/incidents` | none ⚠️ | ✅ List incidents |
+| `POST /api/incidents` | none ⚠️ | ✅ Create an incident |
+| `PATCH /api/incidents/:id` | none ⚠️ | ✅ Update status |
+| `POST /api/incidents/:id/lock` | none ⚠️ | ✅ Lock for a user |
+| `POST /api/ingest/incidents` | `X-API-Key` | ✅ Machine-to-machine intake, idempotent on `(source, externalId)` |
+| `POST /api/auth/login`, `/register`, `/logout` | none | ⚠️ Placeholder: accepts any credentials |
+| `GET /api/dashboard`, `/api/dashboard/metrics` | none | ⚠️ Sample data |
+| `GET /api/chat/channels`, `/api/chat/channels/:channelId/messages` | none | ⚠️ Sample data |
+| `GET /api/user/me` | none | ⚠️ Sample data |
 
-**Production:**
-```bash
-# Build images
-docker-compose -f docker-compose.prod.yml build
+⚠️ = authentication is added in plan Phase 1. Details: [docs/API_REFERENCE.md](docs/API_REFERENCE.md) (partly outdated).
 
-# Start services
-docker-compose -f docker-compose.prod.yml up -d
-
-# View logs
-docker-compose -f docker-compose.prod.yml logs -f
-
-# Stop services
-docker-compose -f docker-compose.prod.yml down
-```
-
-### Manual Deployment
-
-**1. Install Dependencies**
-```bash
-# Backend
-cd backend/server
-npm install
-npm run build
-
-# Frontend
-cd ../../client
-npm install
-npm run build
-```
-
-**2. Setup Database**
-```bash
-# Create PostgreSQL database
-createdb desksos_db
-
-# Run migrations
-psql desksos_db < database/init.sql
-```
-
-**3. Start Services**
-```bash
-# Redis
-redis-server
-
-# Backend (with PM2)
-cd backend/server
-pm2 start dist/index.js --name desksos-enterprise-backend
-
-# Frontend (via Nginx)
-# Configure Nginx to serve client/dist/
-```
-
-## 📡 API Documentation
-
-### REST Endpoints
-
-**Authentication:**
-- `POST /api/auth/login` - User login
-- `POST /api/auth/register` - User registration
-- `POST /api/auth/logout` - User logout
-
-**Dashboard:**
-- `GET /api/dashboard` - Get dashboard data
-- `GET /api/dashboard/metrics` - Get system metrics
-
-**Chat:**
-- `GET /api/chat/channels` - List channels
-- `GET /api/chat/channels/:id/messages` - Get messages
-- `POST /api/chat/channels/:id/messages` - Send message
-
-**User:**
-- `GET /api/user/me` - Get current user profile
-- `PUT /api/user/me` - Update profile
-
-### WebSocket Events
-
-**Client → Server:**
-- `user:join` - User joins platform
-- `message:send` - Send chat message
-- `user:typing` - User is typing
-
-**Server → Client:**
-- `message:new` - New message received
-- `presence:update` - User presence changed
-- `notification:new` - New notification
+**Socket.IO events (server → client):** `incident:created`, `incident:updated`, `incident:locked`, `message:new`, `presence:update`, `user:typing`
 
 ## 🧪 Testing
 
-```bash
-# Backend tests
-cd backend/server
+```powershell
+cd backend\server
+npm run typecheck
 npm test
-
-# Frontend tests
-cd client
-npm test
-
-# E2E tests
-npm run test:e2e
-
-# Coverage
-npm run test:coverage
 ```
 
-## 🔐 Security
+There are no client tests yet (plan task 4.1). CI runs the backend type-check, tests and build, plus the client build, on every push and PR to `main`.
 
-- **JWT Authentication** - Secure token-based auth
-- **Password Hashing** - Bcrypt with salt
-- **SQL Injection Protection** - Parameterized queries
-- **XSS Prevention** - Input sanitization
-- **CORS Configuration** - Controlled origins
-- **Rate Limiting** - API throttling
-- **SSL/TLS** - HTTPS encryption
-- **Environment Variables** - Sensitive data protection
+## 🔐 Security status
 
-## 📊 Monitoring
-
-**Logs:**
-```bash
-# Application logs
-docker-compose logs -f server
-
-# Nginx access logs
-docker-compose logs -f nginx
-
-# Database logs
-docker-compose logs -f postgres
-```
-
-**Health Checks:**
-- Backend: `http://localhost:5000/health`
-- Database: `docker exec postgres pg_isready`
-- Redis: `docker exec redis redis-cli ping`
-
-## 🚧 Roadmap
-
-- [x] Core ticketing system
-- [x] Real-time chat
-- [x] User authentication
-- [x] Dashboard analytics
-- [ ] Advanced reporting
-- [ ] Mobile app (React Native)
-- [ ] Integrations (Slack, Teams, Jira)
-- [ ] AI-powered ticket routing
-- [ ] Knowledge base module
-- [ ] Self-service portal
-- [ ] Multi-language support
-- [ ] Custom workflows
+| Control | Status |
+|---|---|
+| Ingest API key (constant-time comparison) | ✅ |
+| CORS restricted to the local dashboard origins | ✅ |
+| Secrets kept out of git and backups | ✅ |
+| User sign-in, roles, protected API and socket | ❌ Plan Phase 1 |
+| Security headers, rate limiting | ❌ Plan task 1.6 |
+| HTTPS | ❌ Plan task 2.3 |
 
 ## 🤝 Contributing
 
-Contributions welcome! Please follow these guidelines:
-
-1. Fork the repository
-2. Create feature branch (`git checkout -b feature/NewFeature`)
-3. Commit changes (`git commit -m 'Add NewFeature'`)
-4. Push to branch (`git push origin feature/NewFeature`)
-5. Open Pull Request
-
-### Code Style
-
-- **TypeScript** - Strict mode enabled
-- **ESLint** - Airbnb config
-- **Prettier** - Code formatting
-- **Conventional Commits** - Commit message format
+1. Create a feature branch (`git checkout -b feature/NewFeature`)
+2. Commit using [Conventional Commits](https://www.conventionalcommits.org/)
+3. Push and open a pull request into `main`; CI must pass
 
 ## 📝 License
 
@@ -466,37 +205,9 @@ This project is proprietary software for internal use only.
 
 **© 2026 DeskSOS Team. All rights reserved.**
 
-## 👥 Authors
-
-- **DeskSOS Team** - Initial development
-
 ## 🐛 Bug Reports & Feature Requests
-
-Found a bug or have a feature request?
 
 - **GitHub Issues:** [Open an issue](https://github.com/hneal055/DeskSOS-Enterprise---IT-Operations-Platform/issues)
 - **Email:** support@desksos.com
 
-Please include:
-- Clear description
-- Steps to reproduce (for bugs)
-- Expected vs actual behavior
-- Screenshots/logs if applicable
-- Environment details (browser, OS, Docker version)
-
-## 💬 Support
-
-- **Documentation:** [Wiki](https://github.com/hneal055/DeskSOS-Enterprise---IT-Operations-Platform/wiki)
-- **Email:** support@desksos.com
-- **Chat:** Internal Slack channel
-
-## 🙏 Acknowledgments
-
-- Built with [Express](https://expressjs.com/)
-- Real-time powered by [Socket.io](https://socket.io/)
-- UI built with [React](https://react.dev/)
-- Containerized with [Docker](https://www.docker.com/)
-
----
-
-**Made with ❤️ for IT Operations Teams**
+Please include a clear description, steps to reproduce, expected and actual behavior, screenshots or logs, and your environment (OS, Node.js version, browser).
