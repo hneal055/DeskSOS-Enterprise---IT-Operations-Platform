@@ -8,19 +8,20 @@
 
 Real-time incident operations dashboard for IT teams. It receives incidents from people and from DeskSOS Desktop, shows them live, and raises audible alerts for critical ones.
 
-> **Status: pre-production.** The incident dashboard and ingest API work, but sign-in is still a placeholder and the API isn't yet protected. Don't expose it to other users or networks yet. [docs/PRODUCTION-READINESS-PLAN.md](docs/PRODUCTION-READINESS-PLAN.md) tracks the work to make it production-ready.
+> **Status: pre-production.** Accounts, roles and sign-in protect the API and live feed. HTTPS and a production deployment (plan Phase 2) aren't in place yet, so keep it on trusted networks. [docs/PRODUCTION-READINESS-PLAN.md](docs/PRODUCTION-READINESS-PLAN.md) tracks the work to make it production-ready.
 
 ## ✨ What works today
 
 - **Live incident stream:** incidents appear instantly in every open dashboard over Socket.IO (`incident:created`, `incident:updated`, `incident:locked`)
 - **Incident logging:** title, description, category, severity (LOW, MEDIUM, HIGH, CRITICAL), assignee and location
 - **Critical alerts:** an audible tone and a spoken announcement for CRITICAL incidents, after you click "Arm Audio"
-- **Incident inspection console:** source, external ticket ID, requester, status changes and locking
+- **Incident inspection console:** source, external ticket ID, requester, status changes, locking and a **history** of who created, changed and locked each incident
+- **Accounts and roles:** sign-in for every user; admin, operator and viewer roles; admins manage users in the dashboard
 - **DeskSOS Desktop bridge:** `POST /api/ingest/incidents` accepts tickets forwarded by the DeskSOS Desktop backend. It's protected by an API key and safe to retry (no duplicates)
 - **Persistent storage** in SQLite (`backend/server/data/enterprise.db`)
 - **Verified backups** with `backup-desksos.ps1`
 
-**Placeholders, not production features yet:** sign-in (`/api/auth/*` accepts any credentials), user profile, dashboard metrics and team chat return sample data.
+**Placeholders, not production features yet:** dashboard metrics and team chat return sample data (they require sign-in, but the data isn't real).
 
 ## 🚀 Quick Start (Windows development)
 
@@ -138,9 +139,13 @@ Copy `backend/server/.env.example` to `backend/server/.env`. That file is ignore
 |---|---|---|
 | `PORT` | API port | `5100` |
 | `NODE_ENV` | `development` or `production` | `development` |
-| `JWT_SECRET` | Token signing secret. **Set a long random value**; the built-in fallback is insecure and will be removed (plan task 1.2) | insecure fallback |
-| `DATABASE_PATH` | SQLite database file | `backend/server/data/enterprise.db` |
+| `JWT_SECRET` | Token signing secret. **Required**: at least 32 characters, not a placeholder; the server refuses to start otherwise | none |
+| `DATABASE_PATH` | SQLite database file (incidents, users, history) | `backend/server/data/enterprise.db` |
 | `INGEST_API_KEY` | Shared key DeskSOS Desktop sends as `X-API-Key`. Ingest is disabled while unset | unset |
+| `CORS_ORIGINS` | Browser origins allowed to use the API and socket (comma-separated) | `http://localhost:3000,http://localhost:3001` |
+| `RATE_LIMIT_API` / `_LOGIN` / `_INGEST` | Requests per IP per 15 minutes (sign-in: failed attempts per IP + email) | `600` / `10` / `2000` |
+
+> If a Windows user environment variable named `JWT_SECRET` exists, it overrides `.env`. Remove it (or start from a terminal that doesn't have it), or the server may refuse to start.
 
 Generate secrets with:
 `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`
@@ -190,22 +195,22 @@ Then restart **both** backends. Tickets created on Desktop while only one side h
 
 ## 📡 API
 
-| Method & path | Auth | Status |
+Signed-in requests send `Authorization: Bearer <token>`. Tokens last 8 hours and stop working immediately after a password change, role change or deactivation.
+
+| Method & path | Who can use it | Purpose |
 |---|---|---|
-| `GET /health` | none | ✅ Checks the database; 503 if unavailable |
-| `GET /api/incidents` | none ⚠️ | ✅ List incidents |
-| `POST /api/incidents` | none ⚠️ | ✅ Create an incident |
-| `PATCH /api/incidents/:id` | none ⚠️ | ✅ Update status |
-| `POST /api/incidents/:id/lock` | none ⚠️ | ✅ Lock for a user |
-| `POST /api/ingest/incidents` | `X-API-Key` | ✅ Machine-to-machine intake, idempotent on `(source, externalId)` |
-| `POST /api/auth/login`, `/register`, `/logout` | none | ⚠️ Placeholder: accepts any credentials |
-| `GET /api/dashboard`, `/api/dashboard/metrics` | none | ⚠️ Sample data |
-| `GET /api/chat/channels`, `/api/chat/channels/:channelId/messages` | none | ⚠️ Sample data |
-| `GET /api/user/me` | none | ⚠️ Sample data |
+| `GET /health` | anyone | Checks the database; 503 if unavailable |
+| `POST /api/auth/login` | anyone (rate limited) | Returns a token and the user |
+| `GET /api/auth/me`, `POST /api/auth/change-password`, `POST /api/auth/logout` | signed in | Current user; change own password (allowed while a change is pending) |
+| `GET /api/incidents`, `GET /api/incidents/:id/history` | any role | List incidents; an incident's history |
+| `POST /api/incidents`, `PATCH /api/incidents/:id`, `POST /api/incidents/:id/lock` | operator, admin | Create, change status (`Open`, `In Progress`, `Resolved`), lock in your name |
+| `GET/POST /api/admin/users`, `PATCH /api/admin/users/:id`, `POST /api/admin/users/:id/reset-password` | admin | Manage users |
+| `POST /api/ingest/incidents` | `X-API-Key` | Desktop intake, idempotent on `(source, externalId)` |
+| `GET /api/dashboard`, `/api/chat/*`, `/api/user/me` | any role | Sample data (placeholders) |
 
-⚠️ = authentication is added in plan Phase 1. Details: [docs/API_REFERENCE.md](docs/API_REFERENCE.md) (partly outdated).
+Invalid input returns `400 { error, details[] }`. Details: [docs/API_REFERENCE.md](docs/API_REFERENCE.md) (outdated).
 
-**Socket.IO events (server → client):** `incident:created`, `incident:updated`, `incident:locked`, `message:new`, `presence:update`, `user:typing`
+**Socket.IO:** connect with `auth: { token }`; connections without a valid token are refused. Events (server → client): `incident:created`, `incident:updated`, `incident:locked`, `message:new`, `presence:update`, `user:typing`.
 
 ## 🧪 Testing
 
@@ -215,18 +220,22 @@ npm run typecheck
 npm test
 ```
 
-There are no client tests yet (plan task 4.1). CI runs the backend type-check, tests and build, plus the client build, on every push and PR to `main`.
+The backend suite covers sign-in, roles, an access matrix over every protected route, the socket, rate limits, validation, user management and the audit trail. There are no automated client tests yet (plan task 4.1). CI runs the backend type-check, tests and build, plus the client build, on every push and PR to `main`.
 
 ## 🔐 Security status
 
 | Control | Status |
 |---|---|
-| Ingest API key (constant-time comparison) | ✅ |
-| CORS restricted to the local dashboard origins | ✅ |
+| Ingest API key (constant-time comparison), rotation script | ✅ |
+| User accounts (scrypt hashes), roles, sign-in on every API route and the socket | ✅ |
+| Strong `JWT_SECRET` required; 8-hour tokens revoked on password, role or status change | ✅ |
+| Security headers, rate limiting (incl. sign-in brute force), 100 KB body cap | ✅ |
+| Input validation on every write route | ✅ |
+| Incident audit trail | ✅ |
+| CORS restricted to configured origins | ✅ |
 | Secrets kept out of git and backups | ✅ |
-| User sign-in, roles, protected API and socket | ❌ Plan Phase 1 |
-| Security headers, rate limiting | ❌ Plan task 1.6 |
 | HTTPS | ❌ Plan task 2.3 |
+| Production deployment (served build, restart on boot) | ❌ Plan Phase 2 |
 
 ## 🤝 Contributing
 
