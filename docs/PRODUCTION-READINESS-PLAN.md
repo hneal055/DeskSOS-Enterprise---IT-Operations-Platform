@@ -49,10 +49,10 @@ Principles:
 
 | # | Decision | Options | Recommendation |
 |---|---|---|---|
-| D1 | How do Enterprise users sign in? | (a) Local accounts in Enterprise, (b) Active Directory / LDAP, (c) Microsoft Entra ID SSO | **(a) now, (b) later.** Local accounts with roles unblock go-live. FORD-DC01 is a domain controller, so AD sign-in is a natural Phase 6 upgrade |
+| D1 | How do Enterprise users sign in? | (a) Local accounts in Enterprise, (b) Active Directory / LDAP, (c) Microsoft Entra ID SSO | **(a) now; (c) later if the organization uses Microsoft 365.** Local accounts with roles unblock go-live. FORD-DC01 turned out to be a standalone workgroup PC with no Active Directory (corrected 2026-10-05), so (b) needs a domain that doesn't exist here |
 | D2 | Enterprise roles | Admin / Operator / Viewer, or Admin / Operator | **Admin, Operator, Viewer.** Viewer suits wall-screen dashboards and managers |
 | D3 | Who can reach Enterprise? | This server only, the office LAN, or the internet | **Office LAN only**, through a firewall rule scoped to the LAN. No internet exposure without a reverse proxy and a further review |
-| D4 | Code-signing certificate for the Desktop installer | Public CA (OV/EV) or internal AD CS | **Internal AD CS** if every client PC is domain-joined, since FORD-DC01 can issue it. A public CA otherwise |
+| D4 | Code-signing certificate for the Desktop installer | Public CA (OV/EV, or Azure Trusted Signing), or a self-made certificate trusted manually on each PC | **A public option (Azure Trusted Signing or OV).** Without a domain there's no internal CA or group policy to push trust to client PCs, so a self-made certificate would have to be installed by hand on every PC (corrected 2026-10-05) |
 | D5 | Off-machine backup copy | Network share, second disk, or cloud storage | **A network share on another machine.** A backup on the same disk doesn't survive disk failure |
 | D6 | Alert channel | Email, Teams webhook, or both | **Teams webhook**, the simplest to wire from the existing health monitor |
 
@@ -145,7 +145,7 @@ The largest gap. Nothing in Enterprise should be offered to users before this ph
 | 5.1 | **Code-sign** the MSI and EXE (decision D4); add signing to the build | Dev, Admin | M | No SmartScreen warning on a clean PC |
 | 5.2 | **Auto-updater:** turn on the Tauri updater with a signed update feed hosted internally | Dev | M | An installed app updates itself to a new test version |
 | 5.3 | **Clean up the content security policy:** remove the old Railway address and unused ports | Dev | S | The policy lists only the production and development backends |
-| 5.4 | **Pilot rollout:** deploy by GPO to 3–5 PCs, collect feedback, then roll out to everyone | Admin, Owner | M | The pilot runs a week with no blocking issues |
+| 5.4 | **Pilot rollout:** install on 3–5 PCs, collect feedback, then roll out to everyone. There's no domain, so group policy isn't available: use `Manual-Deployment.ps1`, Intune or another device-management tool if one exists | Admin, Owner | M | The pilot runs a week with no blocking issues |
 
 ### Phase 6: User readiness and go-live (week 5–6)
 
@@ -156,7 +156,7 @@ The largest gap. Nothing in Enterprise should be offered to users before this ph
 | 6.3 | **User acceptance testing:** scripted scenarios run by 2–3 real users per product, including a ticket flowing from Desktop to the Enterprise dashboard | Owner | M | All scenarios pass; issues are triaged |
 | 6.4 | **Support process:** who users contact, how incidents in DeskSOS itself are handled, response targets | Owner | S | Documented and communicated |
 | 6.5 | **Go-live,** using the checklist in section 6 | Owner, Admin | S | Signed off |
-| 6.6 | *(Later)* Active Directory sign-in for Enterprise (decision D1-b), and syncing Desktop status changes to Enterprise | Dev | L | Separate project after go-live |
+| 6.6 | *(Later)* Single sign-on for Enterprise (decision D1-c, Microsoft Entra ID), and syncing Desktop status changes to Enterprise | Dev | L | Separate project after go-live |
 
 ---
 
@@ -207,7 +207,7 @@ This assumes one developer, with an administrator available for elevated steps, 
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| Both products and their backups are on one server, a domain controller | Server or disk loss takes everything down; a compromise of DeskSOS sits on a DC | Off-machine backups (3.2). In the longer term, move DeskSOS to a member server instead of the DC |
+| Both products and their backups are on one machine, FORD-DC01: a Windows 11 Pro workstation, not a server (corrected 2026-10-05) | Disk loss, Windows updates and restarts, or someone using the PC take everything down. Desktop operating systems aren't built for always-on hosting | Off-machine backups (3.2); set Windows Update active hours and restart policy; in the longer term, host on a dedicated server or VM |
 | PM2 elevation mismatch, the cause of the earlier EPERM incidents | Services can't be managed; orphaned daemons build up | All scripts check elevation first (already in place); runbooks state "Administrator window only" |
 | The Create React App → Vite move breaks the dashboard | Delays Phase 2 | Do it on a branch with the new client tests (4.1); keep the CRA build until Vite passes UAT |
 | Changes to the bridge contract between the repos | Tickets are rejected (400) and marked failed | The bridge end-to-end test (4.2) runs in both repos; failed outbox rows alert (3.6) |
@@ -238,6 +238,7 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 | 2026-10-04 | 0.7 Broken Docker files removed; docs match reality | ✅ Verified |
 | 2026-10-04 | 0.2 Desktop production running | ✅ Verified |
 | 2026-10-04 | 0.1 Scheduled backup and health monitor working | ✅ Verified (boot task pending a reboot test) |
+| 2026-10-05 | 0.6 Desktop PRs #1 and #2 merged; `main` current and CI green | ✅ Verified |
 
 ### 0.3 Enterprise backups capture real data
 
@@ -311,4 +312,29 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 - **Goal impact:** Desktop production is back for *users*. It's now backed up nightly at 02:00 and checked every 5 minutes without anyone signed in, so *administrators* no longer depend on someone remembering to do it. This moves forward go-live items "daily backups running", "health monitor tested" and "services come back after a reboot" (the last one pending the reboot test).
 - **Found along the way, for Phase 3.4 / decision D6:** the monitor's email alerts aren't configured (no `ALERT_SMTP_*` or `ALERT_TO`), so an outage is only written to `monitor.log` and nobody is notified.
 
-**Phase 0 status:** everything except 0.6 is done and verified. 0.6 is waiting on the owner to merge Desktop PRs #1 and #2.
+### 0.6 Desktop PRs merged; `main` current
+
+- **Change:**
+  - PR #1 (local dashboard startup, self-hosted PM2 production) merged as `3cd1cb6`.
+  - PR #2 retargeted to `main`, then merged as `63dc1a9`. It covers the bridge, P4 priority, legacy cleanup, dependency fixes and the scheduled-task fix.
+  - Merge commits were used, not squash, because PR #2 was stacked on PR #1.
+  - Before merging, two valid CodeRabbit security findings were fixed (`0b75eb3`):
+    - The ingest URL must be HTTPS except for localhost. An invalid URL disables sending instead of crashing the backend.
+    - The ingest request refuses redirects.
+  - A third finding, ticket-ID collisions, was deferred with reasoning posted on the PR: it's only reachable if tickets are deleted, which no API route does, and changing to UUIDs would change the ticket IDs users see.
+- **Verification:**
+  - CI ran on PR #2 for the first time (backend, desktop app, end-to-end: all pass), and again on the fix commit.
+  - Desktop `main` CI on `63dc1a9` passes on all 3 jobs.
+  - Backend tests: 75/75.
+  - Redirect fix proven against Node's real `fetch`: with the old default, a cross-origin 307 forwarded `X-API-Key` to the other host; now the redirect is refused.
+  - Dev (5000) and production (5443) backends both healthy after the merge.
+- **Goal impact:** Desktop's `main` now contains everything production runs, and changes to `main` are tested. Stacked PRs no longer bypass CI. The bridge's API key can't leak over plain HTTP or through a redirect, which protects *clients'* ticket data and the Enterprise ingest credential.
+- **Follow-ups:**
+  - **Ticket IDs:** decide whether to move to UUIDs (product decision, see the PR discussion).
+  - **Dependabot can't patch the Rust crate `glib`** (needs ≥ 0.20, Tauri pins 0.18.5). It's Linux-only and not compiled into the Windows app. Resolve with a Tauri upgrade, and keep it in mind for task 4.4.
+
+**Phase 0 status: complete.** All tasks are verified, except the boot-task reboot test, which moves to the Phase 2 exit gate.
+
+### Correction (2026-10-05)
+
+FORD-DC01 is a **standalone Windows 11 Pro workstation in a workgroup**, not a domain controller as the original assessment assumed. There's no Active Directory, certificate authority or group policy. Decisions D1 and D4, task 5.4, task 6.6 and the first risk have been updated accordingly.
