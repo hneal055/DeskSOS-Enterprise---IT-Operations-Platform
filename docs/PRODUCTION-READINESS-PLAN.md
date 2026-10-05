@@ -263,6 +263,7 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 | 2026-10-05 | 1.9 Incident audit trail | ✅ Verified (on branch) |
 | 2026-10-05 | 1.10 Ingest key rotation, proven lossless | ✅ Verified (on branch) |
 | 2026-10-05 | **Phase 1 exit gate** | ✅ Passed (on branch) |
+| 2026-10-05 | PR #11 review: 8 CodeRabbit findings | ✅ All fixed and verified |
 
 ### 0.3 Enterprise backups capture real data
 
@@ -532,6 +533,23 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 - **Socket:** connections without a valid token, with a forged token or with a pending password change are refused, and identity can't be spoofed.
 - **Totals:** backend **140/140** tests; real-browser flows **14/14** (sign-in, history) and **14/14** (user management and recovery); production dependency audit 0.
 - **Result: ✅ passed.** Phase 1's code is complete on `feat/phase1-secure-enterprise`. Remaining step: PR to `main` with CI, then owner review and merge.
+
+### PR #11 review: 8 CodeRabbit findings, all fixed
+
+Each finding was checked against the code before acting. All 8 were valid. Fixed in `21162b0`:
+
+| # | Finding | Fix | Verification |
+|---|---|---|---|
+| 1 | **Open sockets survived session revocation** (Major). The handshake checked the token once, so a deactivated user kept the live feed. This contradicted "sessions end immediately". | The server tracks every socket per user and disconnects them on deactivation, role change or admin reset. After your own password change it disconnects once the response is sent, so your tab reconnects with its new token. The dashboard sends the current token on each reconnect and checks `/api/auth/me` before signing out. | 5 socket tests. **Mutation:** removing the disconnect fails the deactivation test. **Browser:** a deactivated user's open dashboard was signed out in **32 ms** (precondition verified); your own password change keeps the live feed. |
+| 2 | **An admin resetting their own password got signed out before seeing it** (Major), leaving CLI recovery as the only way back | The API refuses a self-reset (400). The Users screen hides Reset on your own row. **New "Change password" button in the header** for everyone, which was also a gap: there was no voluntary password change at all. | Test plus browser check |
+| 3 | `rotate-ingest-key.ps1` used `RandomNumberGenerator.Fill()`, **missing in Windows PowerShell 5.1** (Major) | `RandomNumberGenerator.Create().GetBytes()` | Confirmed the old call fails on 5.1; the script now passes on 5.1 and 7 |
+| 4 | If the second `.env` write failed, the first wasn't restored (Major) | Files changed by a failed run are restored byte for byte; the error says exactly what happened | Locked the second file to force a failure: both files unchanged, accurate message, on 5.1 and 7 |
+| 5 | A resolution released the lock before the update committed | Release only after commit | Forced-failure test: incident stays Open **and** locked |
+| 6 | A malformed stored hash made login return 500 | Bounded scrypt parameters, fail closed | 6 malformed formats return false; a corrupt row gives 401 |
+| 7 | A network failure left "Add user" stuck | try/catch/finally with a visible error | Code review and build |
+| 8 | Overlapping resets possible | One action per user at a time; buttons disabled while working | Code review and build |
+
+**Totals after the fixes:** backend **149/149**; browser **15/15** (sign-in) and **14/14** (user management). Replies posted on each review comment.
 
 ### Correction (2026-10-05)
 

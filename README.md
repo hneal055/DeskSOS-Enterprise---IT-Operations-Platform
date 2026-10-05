@@ -165,7 +165,8 @@ This takes an online backup of the SQLite database (safe while the server runs),
   - **admin:** everything, including managing users
   - **operator:** create, update and lock incidents
   - **viewer:** read-only
-- **Leavers:** deactivate them in **Users**. Their sessions end immediately.
+- **Leavers:** deactivate them in **Users**. Their sessions end immediately, including any dashboard they have open.
+- **Your own password:** use **Change password** in the header. Your other sessions are signed out. Admins can't reset their own password from **Users**.
 - **Locked out of every admin account?** On the server:
 
   ```powershell
