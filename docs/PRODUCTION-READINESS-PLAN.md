@@ -45,7 +45,20 @@ Principles:
 - **Secrets live only in `.env` files** that git ignores, never in backups that git could pick up, and never as defaults in code.
 - **One PM2 daemon, always run elevated.** Every operational script refuses to run unelevated (see the earlier EPERM incidents).
 
-## 4. Decisions needed before Phase 2
+## 4. Decisions
+
+**Decided by the owner on 2026-10-05:**
+
+| # | Decision |
+|---|---|
+| D1 | **Local accounts in Enterprise** (hashed passwords, managed by an Admin). Microsoft Entra ID sign-in may follow after go-live |
+| D2 | **Three roles: Admin, Operator, Viewer** |
+| D3 | **Office LAN only** (firewall rule scoped to the local network) |
+| D4 | **Azure Trusted Signing**, or a public OV certificate if Azure isn't available |
+| D5 | **Network share on another PC or NAS** for off-machine backups |
+| D6 | **Teams webhook** for alerts |
+
+Each can still be revisited before the phase that depends on it. The options and reasoning considered:
 
 | # | Decision | Options | Recommendation |
 |---|---|---|---|
