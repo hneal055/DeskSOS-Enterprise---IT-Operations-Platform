@@ -1,7 +1,9 @@
 import request from "supertest";
 import { app } from "../src/index";
+import { authAs } from "./helpers";
 
 const KEY = "test-ingest-key";
+const op = authAs("operator").header;
 
 const desktopTicket = {
   source: "desksos-desktop",
@@ -24,26 +26,27 @@ describe("Enterprise UI incidents", () => {
   it("creates, lists and updates an incident", async () => {
     const created = await request(app)
       .post("/api/incidents")
+      .set(op)
       .send({ title: "Disk full on file server", description: "C: at 99%", severity: "CRITICAL" });
     expect(created.status).toBe(201);
     expect(created.body).toMatchObject({ severity: "CRITICAL", status: "Open", source: "enterprise-ui" });
     expect(typeof created.body.created_at).toBe("string");
 
-    const list = await request(app).get("/api/incidents");
+    const list = await request(app).get("/api/incidents").set(op);
     expect(list.body.some((i: { id: number }) => i.id === created.body.id)).toBe(true);
 
-    const patched = await request(app).patch(`/api/incidents/${created.body.id}`).send({ status: "Resolved" });
+    const patched = await request(app).patch(`/api/incidents/${created.body.id}`).set(op).send({ status: "Resolved" });
     expect(patched.status).toBe(200);
     expect(patched.body.status).toBe("Resolved");
   });
 
   it("rejects an incident without a description", async () => {
-    const res = await request(app).post("/api/incidents").send({ title: "No description" });
+    const res = await request(app).post("/api/incidents").set(op).send({ title: "No description" });
     expect(res.status).toBe(400);
   });
 
   it("returns 404 when updating an unknown incident", async () => {
-    const res = await request(app).patch("/api/incidents/999999").send({ status: "Resolved" });
+    const res = await request(app).patch("/api/incidents/999999").set(op).send({ status: "Resolved" });
     expect(res.status).toBe(404);
   });
 });
@@ -73,14 +76,14 @@ describe("POST /api/ingest/incidents", () => {
   });
 
   it("is idempotent: a retry returns the same incident with 200", async () => {
-    const first = await request(app).get("/api/incidents");
+    const first = await request(app).get("/api/incidents").set(op);
     const before = first.body.length;
 
     const retry = await request(app).post("/api/ingest/incidents").set("X-API-Key", KEY).send(desktopTicket);
     expect(retry.status).toBe(200);
     expect(retry.body.externalId).toBe("T-12345678");
 
-    const after = await request(app).get("/api/incidents");
+    const after = await request(app).get("/api/incidents").set(op);
     expect(after.body.length).toBe(before);
   });
 
@@ -96,7 +99,7 @@ describe("POST /api/ingest/incidents", () => {
   });
 
   it("persists ingested incidents", async () => {
-    const list = await request(app).get("/api/incidents");
+    const list = await request(app).get("/api/incidents").set(op);
     const found = list.body.find((i: { externalId: string }) => i.externalId === "T-12345678");
     expect(found).toBeDefined();
     expect(found.title).toBe(desktopTicket.title);

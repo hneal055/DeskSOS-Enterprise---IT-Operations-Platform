@@ -252,6 +252,18 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 | 2026-10-04 | 0.2 Desktop production running | ✅ Verified |
 | 2026-10-04 | 0.1 Scheduled backup and health monitor working | ✅ Verified (boot task pending a reboot test) |
 | 2026-10-05 | 0.6 Desktop PRs #1 and #2 merged; `main` current and CI green | ✅ Verified |
+| 2026-10-05 | 1.2 Strong `JWT_SECRET` required; no fallback | ✅ Verified (on branch `feat/phase1-secure-enterprise`) |
+| 2026-10-05 | 1.1 Real accounts replace the "any password works" login | ✅ Verified (on branch) |
+| 2026-10-05 | 1.3 Every API route requires sign-in, with role checks | ✅ Verified (on branch) |
+| 2026-10-05 | 1.4 Live socket requires sign-in; no identity spoofing | ✅ Verified (on branch) |
+| 2026-10-05 | 1.5 Dashboard sign-in, forced password change, read-only viewers | ✅ Verified (on branch) |
+| 2026-10-05 | 1.6 Security headers, rate limits, body cap, configurable CORS | ✅ Verified (on branch) |
+| 2026-10-05 | 1.7 Input validation on every write route | ✅ Verified (on branch) |
+| 2026-10-05 | 1.8 User management for admins, plus server-side recovery | ✅ Verified (on branch) |
+| 2026-10-05 | 1.9 Incident audit trail | ✅ Verified (on branch) |
+| 2026-10-05 | 1.10 Ingest key rotation, proven lossless | ✅ Verified (on branch) |
+| 2026-10-05 | **Phase 1 exit gate** | ✅ Passed (on branch) |
+| 2026-10-05 | PR #11 review: 8 CodeRabbit findings | ✅ All fixed and verified |
 
 ### 0.3 Enterprise backups capture real data
 
@@ -347,6 +359,197 @@ A task counts as done only once its verification has passed. "Implemented" isn't
   - **Dependabot can't patch the Rust crate `glib`** (needs ≥ 0.20, Tauri pins 0.18.5). It's Linux-only and not compiled into the Windows app. Resolve with a Tauri upgrade, and keep it in mind for task 4.4.
 
 **Phase 0 status: complete.** All tasks are verified, except the boot-task reboot test, which moves to the Phase 2 exit gate.
+
+### 1.2 Strong `JWT_SECRET` required; no fallback
+
+- **Change** (`f114dd8`): Enterprise refuses to start if `JWT_SECRET` is missing, shorter than 32 characters, or one of the placeholder values published in this repo. The hard-coded fallback is gone.
+- **Two things were found and fixed along the way:**
+  - The real `backend/server/.env` contained the **published placeholder** as its secret. It was replaced with a random 64-character value (never printed).
+  - A **stale 28-character user-level Windows variable `JWT_SECRET`** overrode both projects' `.env` files, because dotenv never overrides an existing variable. The running Enterprise backend had been signing tokens with it all along. With the owner's approval it was removed, as Desktop's runbook (§3.2) already prescribed. Desktop's `.env` has its own 88-character secret.
+- **Verification:**
+  - Unit tests cover missing, placeholder, short and valid secrets; the suite passes 14/14.
+  - Startup against the built server: placeholder **refused**, short secret **refused**, stale 28-character variable **refused**, strong `.env` secret **starts and is healthy**.
+  - After removal, the user variable is gone from the registry and a new shell doesn't see it.
+  - Desktop production, Desktop dev and Enterprise stayed healthy throughout.
+- **Goal impact:** before this, anyone who read the repo could forge a valid token for the API. This closes that, and moves forward go-live item "no default secrets in code; startup fails if a secret is missing or weak". It protects *users'* accounts once task 1.1 adds them.
+- **Operator note:** windows that were already open still carry the old variable. **Start Enterprise only from a newly opened Administrator window** (or restart VS Code first), or it will refuse to start with "JWT_SECRET must be at least 32 characters".
+- **Test-harness lesson:** in PowerShell, `[Environment]::SetEnvironmentVariable(name, $null, ...)` sets an empty string instead of deleting. Use `$env:NAME = $null` (process) or `[NullString]::Value` (user or machine).
+
+### 1.1 Real accounts replace the "any password works" login
+
+- **Change:**
+  - New `users` table: case-insensitive unique email, name, role (`admin`, `operator` or `viewer`, enforced by a database CHECK), active flag, `must_change_password`, `token_version` and timestamps.
+  - Passwords are hashed with Node's built-in **scrypt** (N=32768, random salt, constant-time comparison). The plan said bcryptjs; scrypt avoids another dependency and the native-build problems seen with `bcrypt`.
+  - `POST /api/auth/login` checks real credentials. It returns the same 401 for an unknown email, a wrong password or a deactivated account, and takes about the same time in each case.
+  - Tokens last **8 hours**, use HS256 only, and carry `token_version`. Changing a password or deactivating an account **invalidates existing tokens immediately**.
+  - New `GET /api/auth/me` and `POST /api/auth/change-password` (minimum 12 characters; returns a fresh token). `/register` is removed, since admins create users (task 1.8).
+  - **First run:** with no users at all, the server creates `admin@desksos.local` with a random 24-character password, printed once. Until it's changed, that account can only view itself and change its password (`PASSWORD_CHANGE_REQUIRED`).
+- **Verification:**
+  - 16 new tests; the suite passes 30/30. They cover hashing and salting, login success, case-insensitive email, identical failures, the old placeholder behavior being gone, `/register` returning 404, missing, malformed and forged tokens, instant revocation on deactivation, the forced password change flow, and old tokens dying after a change.
+  - Live first-run on a throwaway server: banner printed; login works and is flagged; the change works; the old password is refused and the new one accepted; no password is printed on the second start.
+  - Failed-login timing: known email 54 ms, unknown email 53 ms (median of 9).
+- **Goal impact:** this closes the most serious gap from the assessment. Before, **anyone could get an admin token with any password**. *Users* now have individual accounts with roles, which is the foundation for tasks 1.3–1.9: protected routes and socket, sign-in screen, user management and audit trail. It moves forward the go-live items for authentication and "default and first-run passwords changed".
+- **Administrator note:** the first-run password appears in the startup output, which PM2 also writes to its log file. Because it must be changed at first sign-in, the logged value stops working right away. Sign in and change it promptly after the first deployment.
+- **Not yet in effect:** incident, dashboard, chat and user routes are still open. Task 1.3 puts them behind sign-in.
+
+### 1.3 Every API route requires sign-in, with role checks
+
+- **Change** (`d0bd89e`):
+  - `requireAuth()` is applied **where routers are mounted** (`/api/incidents`, `/api/dashboard`, `/api/chat`, `/api/user`), so a route added under those prefixes later can't be left open by accident. `/health`, `/api/auth/login` and `/api/ingest` (API key) stay open by design.
+  - Creating, updating and locking incidents require the **operator or admin** role. Viewers can read only.
+  - Incident locks are now taken in the **signed-in user's name**. Before, the client sent any `operatorName` it liked.
+  - `/api/user/me` returns the real user instead of sample data.
+- **Verification:**
+  - An access-control test calls **all 11 protected routes** with no token and with a forged token: every one returns 401.
+  - A pending password change limits the account to `/me` and change-password.
+  - Open routes stay open.
+  - Viewers get 403 on create, update and lock; operators and admins succeed.
+  - Lock names can't be spoofed.
+  - **Mutation check:** removing `requireAuth()` from the dashboard mount made 4 access tests fail. Restored, all pass.
+- **Goal impact:** the API no longer accepts anonymous reads or writes. Only signed-in *users* see incidents, and only operators and admins change them. This is the core of the Phase 1 exit gate.
+
+### 1.4 Live socket requires sign-in; no identity spoofing
+
+- **Change** (`d0bd89e`):
+  - Socket.IO connections must present a valid token at handshake (`auth: { token }`). Forged or expired tokens, deactivated users and accounts with a pending password change are refused.
+  - Presence (`user:join`), chat messages and typing events now use the **signed-in identity**. Before, the client supplied its own user ID and name.
+  - Viewers can't send chat messages.
+- **Verification:**
+  - 5 live socket tests on a real server: no token refused, forged token refused, pending password change refused, valid token receives `incident:created` events, and presence shows the real name even when the client sends a spoofed one.
+  - **Mutation check:** letting the socket accept connections without a token made 2 tests fail. Restored, all pass.
+  - Full suite: **65/65**.
+- **Goal impact:** the live incident feed, which shows *clients'* ticket details, is no longer readable by anyone who can open a connection. Nobody can impersonate a colleague in presence or chat.
+- **Note:** the dashboard can't sign in yet, so on this branch it can no longer load data. Task 1.5 adds the sign-in screen. This is why the work is on `feat/phase1-secure-enterprise` (worktree `C:\Projects\DESKSOS-phase1`), while `C:\Projects\DESKSOS` stays on `main` and keeps working.
+
+### 1.5 Dashboard sign-in, forced password change, read-only viewers
+
+- **Change** (client):
+  - New `auth.js` keeps the token in **sessionStorage** (survives a refresh, not closing the tab) and adds it to every API call.
+  - On a 401 it signs out with a notice; on `PASSWORD_CHANGE_REQUIRED` it shows the change screen.
+  - New sign-in and change-password screens (minimum 12 characters, confirmation must match), styled like the dashboard.
+  - New `Root` component checks a saved token against `/api/auth/me` on load, then shows sign-in, change-password or the dashboard.
+  - `App.js` connects the socket with the token and signs out on a socket authentication error. The header shows the signed-in user and a **Sign out** button. The lock no longer sends a name. **Viewers** don't see the incident form or status buttons.
+- **Verification:**
+  - Production build with `CI=true`, the same as GitHub CI, where lint warnings fail the build: passes.
+  - **Real-browser end-to-end run (Playwright + Chromium)** against the built dashboard and the Phase 1 backend with a fresh database. **13/13 checks passed:**
+    - signed-out visit shows sign-in
+    - wrong password refused with a message
+    - first-run admin forced to change password
+    - mismatched confirmation caught
+    - dashboard opens showing the user
+    - incidents load through the authenticated API
+    - incident creation delivered live over the authenticated socket
+    - lock shows the signed-in name
+    - refresh keeps the session
+    - sign-out ends it, also after a refresh
+    - viewer sees no form
+    - viewer sees no status buttons
+    - **a deactivated user is signed out automatically** at the next poll
+  - Screenshots reviewed: sign-in, change password, admin dashboard, viewer dashboard, session ended.
+- **Goal impact:** *users* can now actually use the secured system. Sign-in, first-run setup and sign-out work end to end in a browser, and viewers get a read-only console matching their permissions. With 1.1–1.5 done, the branch is usable again and no longer breaks the dashboard.
+- **Note:** the end-to-end harness lives in `C:\tmp\e2e-phase1` for now. It becomes the basis of the automated bridge and UI tests in tasks 4.1 and 4.2.
+
+### 1.6 Security headers, rate limits, body cap, configurable CORS
+
+- **Change** (`25d5f11`):
+  - **helmet** security headers on every response, including errors: `nosniff`, frame protection, HSTS, a strict CSP, and no `X-Powered-By`.
+  - **Rate limits** per IP per 15 minutes, each configurable in `.env`:
+    - general API: 600
+    - sign-in: **10 failed attempts per IP + email**; successful sign-ins don't count, so one person's typos don't lock out their colleagues
+    - ingest: 2000, kept separate so a Desktop backlog isn't throttled by dashboard traffic
+  - **Request bodies capped at 100 KB.** Oversized bodies get a clear 413, malformed JSON a plain 400, and 500 errors **no longer return internal error messages**.
+  - **CORS and socket origins come from `CORS_ORIGINS`** instead of being hard-coded. All new settings are documented in `.env.example`.
+- **Verification:**
+  - 12 new tests: headers present (also on 401s); allowed and other origins; sign-in limit blocks an account after N failures, even with the right password; failures counted per account; successes not counted; general limit returns 429; ingest unaffected; health not limited; 413 and malformed-JSON handling.
+  - Live server: the general limit trips at the configured value (`401 ×5, then 429`), ingest keeps returning 201, and the `CORS_ORIGINS` override is honored.
+  - Production audit still 0 after adding zod.
+- **Found during verification:** the general limiter was first mounted with a regular expression, which **never matches in Express 4**. The live check showed it never triggered. It's now mounted on `/api` with a skip for ingest, and a dedicated test guards it.
+- **Goal impact:** brute-forcing *users'* passwords is no longer practical, request floods are capped, and responses carry standard browser protections. This covers go-live security items "security headers" and "login throttled", and prepares the configuration for production (task 2.6: LAN origin).
+
+### 1.7 Input validation on every write route
+
+- **Change** (`e4e6788`):
+  - A `validate()` middleware (zod) checks and normalizes bodies and route parameters, trims text, drops unknown fields, and answers bad requests with `400 { error, details[] }` listing every problem.
+  - **Incidents:** create is limited to title 1–255, description 1–20000, category and assignee up to 100, severity and status from fixed lists, and coordinates in range. A client-supplied `source` or `id` is ignored.
+  - **Status updates** accept only `Open`, `In Progress` or `Resolved`. Before, any string was stored.
+  - Incident IDs must be positive integers, and **locking a non-existent incident returns 404** instead of succeeding.
+  - **Sign-in** bodies are validated, and passwords are capped at 256 characters.
+  - Ingest keeps its existing, already-tested validation.
+- **Verification:** 11 new tests covering valid input with trimming and defaults, all problems reported together, whitespace-only and overlong fields, coordinate ranges and null handling, spoofed fields ignored, status list, bad IDs, 404 lock, and auth body checks. Suite: **88/88**. The real-browser end-to-end run still passes **13/13**, so the dashboard's own requests are accepted.
+- **Goal impact:** bad or malicious input can no longer corrupt incident data (an arbitrary status, a spoofed source, a lock on a phantom incident). *Clients'* records stay consistent and *operators* get clear messages instead of silent bad data. This is go-live item "invalid payloads return 400 with details".
+
+### 1.8 User management for admins, plus server-side recovery
+
+- **Change** (`8b48d04`):
+  - **`/api/admin/users`** (admins only) to list users; add a user with a **server-generated temporary password, shown once**, which the user must change at first sign-in; change name or role; deactivate and reactivate; and reset a password. Admins never choose or see users' real passwords.
+  - **Role changes, deactivation and password resets end that user's sessions immediately.**
+  - **Safeguards:** admins can't deactivate or demote themselves, and a backstop check keeps at least one active admin.
+  - **Dashboard Users screen** (admins only): add form, one-time password banner with Copy, role picker, deactivate and reactivate, and reset password with a confirmation.
+  - **Recovery:** `npm run user:reset-password -- <email>`, run on the server, issues a temporary password and reactivates the account. `--list` shows accounts. This covers the case where nobody can sign in as an admin.
+- **Verification:**
+  - 12 API tests covering admin-only access, no hashes in responses, onboarding to first sign-in to own password, case-insensitive duplicates rejected, validation details, a role change applying immediately and ending sessions, deactivate and reactivate, reset ending sessions, 404s and empty updates, and self-protection.
+  - The access matrix now covers **15 protected routes**. Suite: **107/107**.
+  - **Real-browser run, 14/14 checks:** open Users; own row protected; add an operator and see the temporary password; new user forced to set a password and seeing operator features but no Users button; role change; deactivate and reactivate; reset with the old password refused; user back as a viewer; **CLI recovery** temporary password lets the admin sign in. The sign-in flow still passes 13/13.
+- **Correction made during review:** a test named "the last active admin can't be removed" actually passed because of the self-protection rule. Through the API the last-admin guard can't be reached, since the acting admin is always another active admin. The test was renamed to what it really proves, and the guard is documented as a backstop.
+- **Goal impact:** *administrators* can onboard and offboard staff, adjust permissions and recover accounts **without touching the database**. This is the plan's "done when" for task 1.8. *Users* get their own accounts with a password only they know, and leavers lose access the moment they're deactivated.
+
+### 1.9 Incident audit trail
+
+- **Change** (`520995b`):
+  - Append-only `incident_events` table recording **created**, **ingested**, **status_changed** (from → to) and **locked**, with the actor and a timestamp. The actor is the signed-in user, or the integration source for Desktop tickets.
+  - Each event is written **in the same transaction** as its change.
+  - No-op status updates, re-locks by the same holder and ingest retries add nothing.
+  - New `GET /api/incidents/:id/history` for any role.
+  - The dashboard's inspection panel shows the history.
+- **Verification:**
+  - 8 tests: creator recorded, from/to with the user and no-op ignored, lock on holder change only, ingest with the integration actor, retry adds nothing, failed changes leave no event, access rules and 404.
+  - **A forced-failure rollback test:** when the event write fails, the incident isn't saved and the 500 doesn't leak the error. **Removing the transaction wrapper makes this test fail**, so it really guards the guarantee.
+  - The real browser shows "Created by", "Locked by" and "Open → In Progress by" with the user's name (14/14).
+- **Goal impact:** *administrators* and *operators* can see who did what to every incident and when. That gives accountability for *clients'* tickets and evidence for reviews. It meets task 1.9's done criterion.
+- **Follow-up:** user-management actions (user added, role changed, deactivated) aren't in an audit log yet. Consider adding them alongside the logging work in task 2.7.
+
+### 1.10 Ingest key rotation, proven lossless
+
+- **Change** (`f2b44ce`): `rotate-ingest-key.ps1` generates a new key and writes it to **both** `.env` files (Enterprise `INGEST_API_KEY`, Desktop `ENTERPRISE_INGEST_KEY`). It checks both are writable first, verifies they match, keeps their other settings and **never prints the key**. The README documents the procedure, along with account handling and CLI recovery.
+- **Verification** (end to end, throwaway Enterprise and Desktop instances):
+  1. ticket delivered before rotation
+  2. script updates both files to the same new key, keeps other lines, prints nothing secret
+  3. with only Enterprise restarted, a new ticket is refused (401) and **queued, not lost**
+  4. the old key is rejected
+  5. after Desktop restarts, **the queued ticket is delivered automatically** (31 s)
+  6. new tickets flow normally
+- **Goal impact:** *administrators* can replace a possibly exposed credential in one command, without losing *clients'* tickets in the switch. It meets task 1.10's done criterion ("documented and tested once").
+
+### Phase 1 exit gate
+
+**Gate:** automated tests prove no `/api` route or socket event works without a valid token and role, and an independent check finds no open endpoints.
+
+- **Independent check** (`tests/exit-gate.test.ts`): **discovers every route registered in Express** (21), without relying on a hand-written list, and calls each one anonymously.
+  - Only a 4-route allowlist may answer without sign-in, each with a stated reason: `GET /` (info), `GET /health`, `POST /api/auth/login` (rate limited) and `POST /api/auth/logout` (no-op).
+  - Every other route returns 401. That includes ingest, which returns 401 without its key.
+  - The allowlist must match real routes, so a typo can't hide anything.
+  - **Mutation check:** adding a hidden unprotected `GET /api/debug/dump` made the gate fail at once.
+- **Roles:** the access and role tests show viewers get 403 on every write, and non-admins get 403 on user management.
+- **Socket:** connections without a valid token, with a forged token or with a pending password change are refused, and identity can't be spoofed.
+- **Totals:** backend **140/140** tests; real-browser flows **14/14** (sign-in, history) and **14/14** (user management and recovery); production dependency audit 0.
+- **Result: ✅ passed.** Phase 1's code is complete on `feat/phase1-secure-enterprise`. Remaining step: PR to `main` with CI, then owner review and merge.
+
+### PR #11 review: 8 CodeRabbit findings, all fixed
+
+Each finding was checked against the code before acting. All 8 were valid. Fixed in `21162b0`:
+
+| # | Finding | Fix | Verification |
+|---|---|---|---|
+| 1 | **Open sockets survived session revocation** (Major). The handshake checked the token once, so a deactivated user kept the live feed. This contradicted "sessions end immediately". | The server tracks every socket per user and disconnects them on deactivation, role change or admin reset. After your own password change it disconnects once the response is sent, so your tab reconnects with its new token. The dashboard sends the current token on each reconnect and checks `/api/auth/me` before signing out. | 5 socket tests. **Mutation:** removing the disconnect fails the deactivation test. **Browser:** a deactivated user's open dashboard was signed out in **32 ms** (precondition verified); your own password change keeps the live feed. |
+| 2 | **An admin resetting their own password got signed out before seeing it** (Major), leaving CLI recovery as the only way back | The API refuses a self-reset (400). The Users screen hides Reset on your own row. **New "Change password" button in the header** for everyone, which was also a gap: there was no voluntary password change at all. | Test plus browser check |
+| 3 | `rotate-ingest-key.ps1` used `RandomNumberGenerator.Fill()`, **missing in Windows PowerShell 5.1** (Major) | `RandomNumberGenerator.Create().GetBytes()` | Confirmed the old call fails on 5.1; the script now passes on 5.1 and 7 |
+| 4 | If the second `.env` write failed, the first wasn't restored (Major) | Files changed by a failed run are restored byte for byte; the error says exactly what happened | Locked the second file to force a failure: both files unchanged, accurate message, on 5.1 and 7 |
+| 5 | A resolution released the lock before the update committed | Release only after commit | Forced-failure test: incident stays Open **and** locked |
+| 6 | A malformed stored hash made login return 500 | Bounded scrypt parameters, fail closed | 6 malformed formats return false; a corrupt row gives 401 |
+| 7 | A network failure left "Add user" stuck | try/catch/finally with a visible error | Code review and build |
+| 8 | Overlapping resets possible | One action per user at a time; buttons disabled while working | Code review and build |
+
+**Totals after the fixes:** backend **149/149**; browser **15/15** (sign-in) and **14/14** (user management). Replies posted on each review comment.
 
 ### Correction (2026-10-05)
 

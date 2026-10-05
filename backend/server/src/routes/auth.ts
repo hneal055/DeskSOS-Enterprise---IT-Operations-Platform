@@ -1,77 +1,60 @@
-import { Router } from "express";
-import jwt from "jsonwebtoken";
-import config from "../config";
+import { Router, Request, Response } from "express";
+import { authenticate, checkPasswordStrength, setPassword, verifyPasswordFor, User } from "../users";
+import { requireAuth, signToken } from "../middleware/auth";
+import { validate } from "../middleware/validate";
+import { loginBody, changePasswordBody } from "../validation";
+import { disconnectUser } from "../services/socket";
 
 const router = Router();
 
-// POST /api/auth/login - User login
-router.post("/login", (req, res) => {
-  try {
-    const { email, password } = req.body;
+function publicUser(u: User) {
+  return { id: u.id, email: u.email, name: u.name, role: u.role, mustChangePassword: u.mustChangePassword };
+}
 
-    // Mock validation - replace with database lookup
-    if (!email || !password) {
-      return res.status(400).json({ error: "Email and password are required" });
+// POST /api/auth/login
+router.post("/login", validate({ body: loginBody }), (req: Request, res: Response) => {
+  const { email, password } = req.body;
+  const user = authenticate(email, password);
+  // Same response for unknown email, wrong password and deactivated account
+  if (!user) return res.status(401).json({ error: "Invalid email or password" });
+  res.json({ token: signToken(user), user: publicUser(user) });
+});
+
+// POST /api/auth/logout
+// Tokens are stateless; the client discards its token. Kept for API symmetry.
+router.post("/logout", (_req: Request, res: Response) => {
+  res.status(204).end();
+});
+
+// GET /api/auth/me
+router.get("/me", requireAuth({ allowPasswordChangePending: true }), (req: Request, res: Response) => {
+  res.json(publicUser(req.user!));
+});
+
+// POST /api/auth/change-password
+// Allowed while a password change is pending (first sign-in). Returns a new
+// token, because changing the password invalidates every earlier token.
+router.post(
+  "/change-password",
+  requireAuth({ allowPasswordChangePending: true }),
+  validate({ body: changePasswordBody }),
+  (req: Request, res: Response) => {
+    const { currentPassword, newPassword } = req.body;
+    if (!verifyPasswordFor(req.user!.id, currentPassword)) {
+      return res.status(401).json({ error: "Current password is incorrect" });
     }
-
-    // Mock user data
-    const user = {
-      id: "user-1",
-      name: "Alice Johnson",
-      email: email,
-      role: "admin",
-    };
-
-    // Generate JWT token
-    const token = jwt.sign(user, config.jwtSecret, { expiresIn: "7d" });
-
-    res.json({
-      data: {
-        user,
-        token,
-      },
-    });
-  } catch (error) {
-    res.status(500).json({ error: "Login failed" });
-  }
-});
-
-// POST /api/auth/register - User registration
-router.post("/register", (req, res) => {
-  try {
-    const { name, email, password } = req.body;
-
-    if (!name || !email || !password) {
-      return res.status(400).json({ error: "Name, email, and password are required" });
+    const weak = checkPasswordStrength(newPassword);
+    if (weak) return res.status(400).json({ error: weak });
+    if (newPassword === currentPassword) {
+      return res.status(400).json({ error: "New password must be different from the current one" });
     }
-
-    // Mock registration - replace with database insert
-    const user = {
-      id: `user-${Date.now()}`,
-      name,
-      email,
-      role: "user",
-    };
-
-    // Generate JWT token
-    const token = jwt.sign(user, config.jwtSecret, { expiresIn: "7d" });
-
-    res.json({
-      data: {
-        user,
-        token,
-      },
-    });
-  } catch (error) {
-    res.status(500).json({ error: "Registration failed" });
+    const user = setPassword(req.user!.id, newPassword);
+    // Close this user's open live connections: other tabs or devices still
+    // hold the old token. Done after the response so this tab can store its
+    // new token first; it then reconnects with it.
+    res.on("finish", () => disconnectUser(user.id));
+    res.json({ token: signToken(user), user: publicUser(user) });
   }
-});
-
-// POST /api/auth/logout - User logout
-router.post("/logout", (req, res) => {
-  res.json({
-    message: "Logged out successfully",
-  });
-});
+);
 
 export default router;

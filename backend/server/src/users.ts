@@ -1,0 +1,219 @@
+import crypto from "crypto";
+import { db } from "./db";
+
+export type Role = "admin" | "operator" | "viewer";
+export const ROLES: Role[] = ["admin", "operator", "viewer"];
+
+export interface User {
+  id: number;
+  email: string;
+  name: string;
+  role: Role;
+  active: boolean;
+  mustChangePassword: boolean;
+  tokenVersion: number;
+  createdAt: string;
+  lastLoginAt: string | null;
+}
+
+interface UserRow {
+  id: number;
+  email: string;
+  name: string;
+  password_hash: string;
+  role: Role;
+  active: number;
+  must_change_password: number;
+  token_version: number;
+  created_at: string;
+  last_login_at: string | null;
+}
+
+export const MIN_PASSWORD_LENGTH = 12;
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    email                TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    name                 TEXT NOT NULL,
+    password_hash        TEXT NOT NULL,
+    role                 TEXT NOT NULL CHECK (role IN ('admin', 'operator', 'viewer')),
+    active               INTEGER NOT NULL DEFAULT 1,
+    must_change_password INTEGER NOT NULL DEFAULT 0,
+    token_version        INTEGER NOT NULL DEFAULT 0,
+    created_at           TEXT NOT NULL,
+    last_login_at        TEXT
+  );
+`);
+
+function toUser(r: UserRow): User {
+  return {
+    id: r.id,
+    email: r.email,
+    name: r.name,
+    role: r.role,
+    active: r.active === 1,
+    mustChangePassword: r.must_change_password === 1,
+    tokenVersion: r.token_version,
+    createdAt: r.created_at,
+    lastLoginAt: r.last_login_at,
+  };
+}
+
+// ── Password hashing (scrypt, built into Node) ──────────────────────────────
+// Stored as: scrypt$N$r$p$<salt base64>$<hash base64>
+const SCRYPT = { N: 2 ** 15, r: 8, p: 1, keylen: 64 };
+const SCRYPT_MAXMEM = 64 * 1024 * 1024;
+
+export function hashPassword(password: string): string {
+  const salt = crypto.randomBytes(16);
+  const hash = crypto.scryptSync(password, salt, SCRYPT.keylen, {
+    N: SCRYPT.N, r: SCRYPT.r, p: SCRYPT.p, maxmem: SCRYPT_MAXMEM,
+  });
+  return ["scrypt", SCRYPT.N, SCRYPT.r, SCRYPT.p, salt.toString("base64"), hash.toString("base64")].join("$");
+}
+
+// A stored hash is only trusted within these bounds; anything else (a corrupt
+// row, a bad manual edit) counts as a failed check rather than an error
+const isPowerOfTwo = (n: number) => Number.isInteger(n) && n > 1 && (n & (n - 1)) === 0;
+
+export function verifyPassword(password: string, stored: string): boolean {
+  const [algo, nRaw, rRaw, pRaw, saltB64, hashB64] = String(stored).split("$");
+  if (algo !== "scrypt" || !saltB64 || !hashB64) return false;
+  const N = Number(nRaw), r = Number(rRaw), p = Number(pRaw);
+  if (!isPowerOfTwo(N) || N < 2 ** 14 || N > 2 ** 17) return false;
+  if (!Number.isInteger(r) || r < 1 || r > 16 || !Number.isInteger(p) || p < 1 || p > 4) return false;
+  const expected = Buffer.from(hashB64, "base64");
+  if (expected.length < 32 || expected.length > 128) return false;
+  try {
+    const actual = crypto.scryptSync(password, Buffer.from(saltB64, "base64"), expected.length, {
+      N, r, p, maxmem: SCRYPT_MAXMEM,
+    });
+    return crypto.timingSafeEqual(actual, expected);
+  } catch {
+    return false;
+  }
+}
+
+// Used when the email doesn't exist, so a failed login takes about as long
+// either way and response timing doesn't reveal which emails have accounts.
+const DUMMY_HASH = hashPassword(crypto.randomBytes(16).toString("hex"));
+
+export function generatePassword(): string {
+  return crypto.randomBytes(18).toString("base64url"); // 24 characters
+}
+
+// ── Queries ─────────────────────────────────────────────────────────────────
+export function getUser(id: number): User | undefined {
+  const row = db.prepare("SELECT * FROM users WHERE id = ?").get(id) as UserRow | undefined;
+  return row && toUser(row);
+}
+
+export function countUsers(): number {
+  return (db.prepare("SELECT COUNT(*) AS n FROM users").get() as { n: number }).n;
+}
+
+export function createUser(input: {
+  email: string;
+  name: string;
+  password: string;
+  role: Role;
+  mustChangePassword?: boolean;
+}): User {
+  const info = db
+    .prepare(
+      `INSERT INTO users (email, name, password_hash, role, must_change_password, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      input.email.trim(),
+      input.name.trim(),
+      hashPassword(input.password),
+      input.role,
+      input.mustChangePassword ? 1 : 0,
+      new Date().toISOString()
+    );
+  return getUser(Number(info.lastInsertRowid))!;
+}
+
+// Returns the user only if the email exists, the account is active and the
+// password matches. Callers must not reveal which of those failed.
+export function authenticate(email: string, password: string): User | null {
+  const row = db.prepare("SELECT * FROM users WHERE email = ?").get(email.trim()) as UserRow | undefined;
+  const ok = verifyPassword(password, row ? row.password_hash : DUMMY_HASH);
+  if (!row || !ok || row.active !== 1) return null;
+  db.prepare("UPDATE users SET last_login_at = ? WHERE id = ?").run(new Date().toISOString(), row.id);
+  return getUser(row.id)!;
+}
+
+export function verifyPasswordFor(id: number, password: string): boolean {
+  const row = db.prepare("SELECT password_hash FROM users WHERE id = ?").get(id) as { password_hash: string } | undefined;
+  return !!row && verifyPassword(password, row.password_hash);
+}
+
+// Changing the password bumps token_version, which invalidates every token
+// issued before the change.
+export function setPassword(id: number, password: string, opts: { mustChange?: boolean } = {}): User {
+  db.prepare(
+    `UPDATE users
+     SET password_hash = ?, must_change_password = ?, token_version = token_version + 1
+     WHERE id = ?`
+  ).run(hashPassword(password), opts.mustChange ? 1 : 0, id);
+  return getUser(id)!;
+}
+
+export function checkPasswordStrength(password: unknown): string | null {
+  if (typeof password !== "string" || password.length < MIN_PASSWORD_LENGTH) {
+    return `Password must be at least ${MIN_PASSWORD_LENGTH} characters`;
+  }
+  if (password.length > 256) return "Password must be at most 256 characters";
+  return null;
+}
+
+// ── Administration ──────────────────────────────────────────────────────────
+export function listUsers(): User[] {
+  const rows = db.prepare("SELECT * FROM users ORDER BY active DESC, name COLLATE NOCASE").all() as UserRow[];
+  return rows.map(toUser);
+}
+
+export function findUserByEmail(email: string): User | undefined {
+  const row = db.prepare("SELECT * FROM users WHERE email = ?").get(email.trim()) as UserRow | undefined;
+  return row && toUser(row);
+}
+
+export function countActiveAdmins(): number {
+  return (db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND active = 1").get() as { n: number }).n;
+}
+
+// Role changes and deactivation bump token_version, so existing sessions end
+// immediately rather than carrying old permissions until their token expires.
+export function updateUser(id: number, changes: { name?: string; role?: Role; active?: boolean }): User {
+  const current = getUser(id);
+  if (!current) throw new Error("User not found");
+  const name = changes.name ?? current.name;
+  const role = changes.role ?? current.role;
+  const active = changes.active ?? current.active;
+  const revoke = role !== current.role || active !== current.active;
+  db.prepare(
+    `UPDATE users SET name = ?, role = ?, active = ?, token_version = token_version + ? WHERE id = ?`
+  ).run(name, role, active ? 1 : 0, revoke ? 1 : 0, id);
+  return getUser(id)!;
+}
+
+// Issues a new random password that must be changed at next sign-in, and
+// ends all of the user's sessions. Returns the password to show once.
+export function resetPassword(id: number): string {
+  const password = generatePassword();
+  setPassword(id, password, { mustChange: true });
+  return password;
+}
+
+// First run: with no accounts at all, create an admin with a random password
+// that must be changed at first sign-in. Returns the password so the caller
+// can show it once; returns null if users already exist.
+export function ensureInitialAdmin(email = "admin@desksos.local"): { email: string; password: string } | null {
+  if (countUsers() > 0) return null;
+  const password = generatePassword();
+  createUser({ email, name: "Administrator", password, role: "admin", mustChangePassword: true });
+  return { email, password };
+}
