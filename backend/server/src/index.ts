@@ -12,6 +12,7 @@ import ingestRoutes from "./routes/ingest";
 import { initializeSocket } from "./services/socket";
 import { pingDatabase } from "./db";
 import { ensureInitialAdmin } from "./users";
+import { requireAuth } from "./middleware/auth";
 
 // Initialize Express
 const app: Express = express();
@@ -48,11 +49,14 @@ app.use((req, res, next) => {
 });
 
 // API Routes
+// Sign-in is enforced where each router is mounted, so no route under these
+// prefixes can be left open by accident. Exceptions: /api/auth (login itself;
+// its own routes opt in) and /api/ingest (machine-to-machine, X-API-Key).
 app.use("/api/auth", authRoutes);
-app.use("/api/dashboard", dashboardRoutes);
-app.use("/api/chat", chatRoutes);
-app.use("/api/user", userRoutes);
-app.use("/api/incidents", incidentRoutes);
+app.use("/api/dashboard", requireAuth(), dashboardRoutes);
+app.use("/api/chat", requireAuth(), chatRoutes);
+app.use("/api/user", requireAuth(), userRoutes);
+app.use("/api/incidents", requireAuth(), incidentRoutes);
 app.use("/api/ingest", ingestRoutes);
 
 // Health check: reports the real state of the incidents database

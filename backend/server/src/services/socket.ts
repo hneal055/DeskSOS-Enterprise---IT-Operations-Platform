@@ -1,4 +1,6 @@
 import { Server as SocketIOServer, Socket } from "socket.io";
+import { userFromToken } from "../middleware/auth";
+import { User } from "../users";
 
 interface ConnectedUser {
   id: string;
@@ -8,104 +10,70 @@ interface ConnectedUser {
 
 const connectedUsers: Map<string, ConnectedUser> = new Map();
 
+function presence() {
+  return {
+    onlineUsers: Array.from(connectedUsers.values()).map((u) => ({ id: u.id, name: u.name })),
+  };
+}
+
 export const initializeSocket = (io: SocketIOServer) => {
+  // Every connection must present a valid token (handshake auth: { token }).
+  // Accounts with a pending password change can't connect until they change it.
+  io.use((socket, next) => {
+    const user = userFromToken((socket.handshake.auth as { token?: string } | undefined)?.token);
+    if (!user) return next(new Error("Authentication required"));
+    if (user.mustChangePassword) return next(new Error("Password change required"));
+    socket.data.user = user;
+    next();
+  });
+
   io.on("connection", (socket: Socket) => {
-    console.log(`User connected: ${socket.id}`);
+    const me = socket.data.user as User;
+    console.log(`User connected: ${me.email} (${socket.id})`);
 
-    // User joins with their profile
-    socket.on("user:join", (user: any) => {
-      connectedUsers.set(user.id, {
-        id: user.id,
-        name: user.name,
-        socket,
-      });
-      console.log(`${user.name} joined. Total users: ${connectedUsers.size}`);
-
-      // Broadcast presence
-      io.emit("presence:update", {
-        onlineUsers: Array.from(connectedUsers.values()).map((u) => ({
-          id: u.id,
-          name: u.name,
-        })),
-      });
+    // Presence uses the signed-in identity, never what the client claims
+    socket.on("user:join", () => {
+      connectedUsers.set(String(me.id), { id: String(me.id), name: me.name, socket });
+      console.log(`${me.name} joined. Total users: ${connectedUsers.size}`);
+      io.emit("presence:update", presence());
     });
 
-    // Handle messages
     socket.on("message:send", (message: any, callback) => {
       try {
+        if (me.role === "viewer") throw new Error("Insufficient permissions");
         const messageId = `msg-${Date.now()}`;
         const enrichedMessage = {
           ...message,
+          // Sender fields come from the session, overriding anything sent
+          userId: String(me.id),
+          userName: me.name,
           id: messageId,
           timestamp: new Date().toISOString(),
         };
-
-        console.log(`Message from ${message.userId}: ${message.content}`);
-
-        // Broadcast to all clients
         io.emit("message:new", enrichedMessage);
-
-        // Acknowledge with server-generated ID
-        if (callback) {
-          callback({
-            success: true,
-            id: messageId,
-          });
-        }
+        if (callback) callback({ success: true, id: messageId });
       } catch (error: any) {
-        console.error("Error sending message:", error);
-        if (callback) {
-          callback({
-            error: error.message,
-          });
-        }
+        if (callback) callback({ error: error.message });
       }
     });
 
-    // Handle typing indicator
     socket.on("user:typing", (data: any) => {
-      const user = connectedUsers.get(data.userId);
-      if (user) {
-        socket.broadcast.emit("user:typing", {
-          userId: data.userId,
-          userName: user.name,
-          channel: data.channel,
-        });
-      }
+      socket.broadcast.emit("user:typing", { userId: String(me.id), userName: me.name, channel: data?.channel });
     });
 
-    // Handle typing stopped
-    socket.on("user:typing:stop", (data: any) => {
-      socket.broadcast.emit("user:typing:stop", {
-        userId: data.userId,
-      });
+    socket.on("user:typing:stop", () => {
+      socket.broadcast.emit("user:typing:stop", { userId: String(me.id) });
     });
 
-    // Handle disconnect
     socket.on("disconnect", () => {
-      // Find and remove user
-      for (const [userId, user] of connectedUsers.entries()) {
-        if (user.socket.id === socket.id) {
-          connectedUsers.delete(userId);
-          console.log(`${user.name} disconnected. Total users: ${connectedUsers.size}`);
-
-          // Broadcast updated presence
-          io.emit("presence:update", {
-            onlineUsers: Array.from(connectedUsers.values()).map((u) => ({
-              id: u.id,
-              name: u.name,
-            })),
-          });
-          break;
-        }
+      const entry = connectedUsers.get(String(me.id));
+      if (entry && entry.socket.id === socket.id) {
+        connectedUsers.delete(String(me.id));
+        console.log(`${me.name} disconnected. Total users: ${connectedUsers.size}`);
+        io.emit("presence:update", presence());
       }
     });
   });
 };
 
-export const getConnectedUsers = () => {
-  return Array.from(connectedUsers.values()).map((u) => ({
-    id: u.id,
-    name: u.name,
-  }));
-};
+export const getConnectedUsers = () => presence().onlineUsers;

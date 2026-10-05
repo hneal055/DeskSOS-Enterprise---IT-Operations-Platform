@@ -1,7 +1,12 @@
 import { Router, Request, Response } from 'express';
 import { listIncidents, createIncident, getIncident, updateIncidentStatus, SEVERITIES, Severity } from '../db';
+import { requireRole } from '../middleware/auth';
 
 const router = Router();
+
+// The router is mounted behind requireAuth, so every route has req.user.
+// Viewers can read; changing incidents needs the operator or admin role.
+const canEdit = requireRole('admin', 'operator');
 
 // Locks are coordination state for operators currently on shift, so they
 // stay in memory; incidents themselves are persisted in SQLite.
@@ -17,7 +22,7 @@ router.get('/', (req: Request, res: Response) => {
 });
 
 // POST /api/incidents (Enterprise UI)
-router.post('/', (req: Request, res: Response) => {
+router.post('/', canEdit, (req: Request, res: Response) => {
   try {
     const { title, description, category, severity, location, assignedTo, status } = req.body;
 
@@ -47,7 +52,7 @@ router.post('/', (req: Request, res: Response) => {
 });
 
 // PATCH /api/incidents/:id
-router.patch('/:id', (req: Request, res: Response) => {
+router.patch('/:id', canEdit, (req: Request, res: Response) => {
   try {
     const id = Number(req.params.id);
     const { status } = req.body;
@@ -70,16 +75,18 @@ router.patch('/:id', (req: Request, res: Response) => {
 });
 
 // POST /api/incidents/:id/lock
-router.post('/:id/lock', (req: Request, res: Response) => {
+router.post('/:id/lock', canEdit, (req: Request, res: Response) => {
   try {
     const id = Number(req.params.id);
-    const { operatorName } = req.body;
+    // The lock holder is the signed-in user, not a name sent by the client,
+    // so nobody can lock incidents in someone else's name
+    const operatorName = req.user!.name;
 
     if (activeLocks[id] && activeLocks[id] !== operatorName) {
       return res.status(409).json({ error: `Incident is currently locked by ${activeLocks[id]}` });
     }
 
-    activeLocks[id] = operatorName || 'Anonymous-Operator';
+    activeLocks[id] = operatorName;
 
     req.app.get('io')?.emit('incident:locked', { incidentId: id, lockedBy: activeLocks[id] });
 
