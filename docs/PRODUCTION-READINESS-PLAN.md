@@ -256,6 +256,7 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 | 2026-10-05 | 1.1 Real accounts replace the "any password works" login | ✅ Verified (on branch) |
 | 2026-10-05 | 1.3 Every API route requires sign-in, with role checks | ✅ Verified (on branch) |
 | 2026-10-05 | 1.4 Live socket requires sign-in; no identity spoofing | ✅ Verified (on branch) |
+| 2026-10-05 | 1.5 Dashboard sign-in, forced password change, read-only viewers | ✅ Verified (on branch) |
 
 ### 0.3 Enterprise backups capture real data
 
@@ -412,6 +413,34 @@ A task counts as done only once its verification has passed. "Implemented" isn't
   - Full suite: **65/65**.
 - **Goal impact:** the live incident feed, which shows *clients'* ticket details, is no longer readable by anyone who can open a connection. Nobody can impersonate a colleague in presence or chat.
 - **Note:** the dashboard can't sign in yet, so on this branch it can no longer load data. Task 1.5 adds the sign-in screen. This is why the work is on `feat/phase1-secure-enterprise` (worktree `C:\Projects\DESKSOS-phase1`), while `C:\Projects\DESKSOS` stays on `main` and keeps working.
+
+### 1.5 Dashboard sign-in, forced password change, read-only viewers
+
+- **Change** (client):
+  - New `auth.js` keeps the token in **sessionStorage** (survives a refresh, not closing the tab) and adds it to every API call.
+  - On a 401 it signs out with a notice; on `PASSWORD_CHANGE_REQUIRED` it shows the change screen.
+  - New sign-in and change-password screens (minimum 12 characters, confirmation must match), styled like the dashboard.
+  - New `Root` component checks a saved token against `/api/auth/me` on load, then shows sign-in, change-password or the dashboard.
+  - `App.js` connects the socket with the token and signs out on a socket authentication error. The header shows the signed-in user and a **Sign out** button. The lock no longer sends a name. **Viewers** don't see the incident form or status buttons.
+- **Verification:**
+  - Production build with `CI=true`, the same as GitHub CI, where lint warnings fail the build: passes.
+  - **Real-browser end-to-end run (Playwright + Chromium)** against the built dashboard and the Phase 1 backend with a fresh database. **13/13 checks passed:**
+    - signed-out visit shows sign-in
+    - wrong password refused with a message
+    - first-run admin forced to change password
+    - mismatched confirmation caught
+    - dashboard opens showing the user
+    - incidents load through the authenticated API
+    - incident creation delivered live over the authenticated socket
+    - lock shows the signed-in name
+    - refresh keeps the session
+    - sign-out ends it, also after a refresh
+    - viewer sees no form
+    - viewer sees no status buttons
+    - **a deactivated user is signed out automatically** at the next poll
+  - Screenshots reviewed: sign-in, change password, admin dashboard, viewer dashboard, session ended.
+- **Goal impact:** *users* can now actually use the secured system. Sign-in, first-run setup and sign-out work end to end in a browser, and viewers get a read-only console matching their permissions. With 1.1–1.5 done, the branch is usable again and no longer breaks the dashboard.
+- **Note:** the end-to-end harness lives in `C:\tmp\e2e-phase1` for now. It becomes the basis of the automated bridge and UI tests in tasks 4.1 and 4.2.
 
 ### Correction (2026-10-05)
 

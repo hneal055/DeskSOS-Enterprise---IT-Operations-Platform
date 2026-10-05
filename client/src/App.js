@@ -1,9 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
+import { apiFetch, getToken } from './auth';
 
 const API_BASE = ''; // Leverages the package.json proxy to bypass CORS
 
-export default function App() {
+export default function App({ user, onSignOut, onSessionEnded }) {
+  // Viewers get a read-only console; the server enforces the same rule
+  const canEdit = user.role === 'admin' || user.role === 'operator';
+
   // Incident & System States
   const [incidents, setIncidents] = useState([]);
   const [selectedIncident, setSelectedIncident] = useState(null);
@@ -101,7 +105,14 @@ export default function App() {
 
   // Real-time WebSocket Synchronization
   useEffect(() => {
-    const socket = io(); // Connects automatically via proxy/same-origin
+    // Same-origin connection, authenticated with the session token
+    const socket = io({ auth: { token: getToken() } });
+
+    socket.on('connect_error', (err) => {
+      if (err.message === 'Authentication required') {
+        onSessionEnded('Your session has ended. Please sign in again.');
+      }
+    });
 
     socket.on('incident:locked', ({ incidentId, lockedBy }) => {
       setIncidents(prev => 
@@ -129,11 +140,12 @@ export default function App() {
     return () => {
       socket.disconnect();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadIncidents = async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/incidents`);
+      const res = await apiFetch(`${API_BASE}/api/incidents`);
       if (res.ok) {
         const data = await res.json();
         setIncidents(data);
@@ -150,14 +162,12 @@ export default function App() {
   // Handle selecting an incident and acquiring concurrency lock
   const handleSelectIncident = async (incident) => {
     setSelectedIncident(incident);
+    if (!canEdit) return; // viewers inspect without locking
     const incidentId = incident.id || incident._id;
 
     try {
-      await fetch(`${API_BASE}/api/incidents/${incidentId}/lock`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ operatorName: ticketAssignedTo || 'Node-Ops-Lead' })
-      });
+      // The server records the lock in the signed-in user's name
+      await apiFetch(`${API_BASE}/api/incidents/${incidentId}/lock`, { method: 'POST' });
     } catch (err) {
       console.error('Failed to acquire incident lock:', err);
     }
@@ -175,11 +185,8 @@ export default function App() {
     setIsSubmitting(true);
 
     try {
-      const response = await fetch(`${API_BASE}/api/incidents`, {
+      const response = await apiFetch(`${API_BASE}/api/incidents`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({
           title: ticketTitle,
           description: ticketDescription,
@@ -210,11 +217,8 @@ export default function App() {
   // Handle updating an incident's status (e.g. "In Progress", "Resolved")
   const handleUpdateStatus = async (incidentId, newStatus) => {
     try {
-      const response = await fetch(`${API_BASE}/api/incidents/${incidentId}`, {
+      const response = await apiFetch(`${API_BASE}/api/incidents/${incidentId}`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({ status: newStatus }),
       });
 
@@ -279,6 +283,18 @@ export default function App() {
             <span className={`h-2.5 w-2.5 rounded-full ${gatewayStatus === 'Online' ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`}></span>
             <span className="text-slate-300">Gateway: {gatewayStatus}</span>
           </div>
+
+          <div className="flex items-center space-x-3 text-xs">
+            <span className="text-slate-300" data-testid="signed-in-user">
+              {user.name} <span className="text-slate-500 capitalize">({user.role})</span>
+            </span>
+            <button
+              onClick={onSignOut}
+              className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold px-3 py-1.5 rounded transition"
+            >
+              Sign out
+            </button>
+          </div>
         </div>
       </header>
 
@@ -308,7 +324,8 @@ export default function App() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left Column: Live Incident Stream & Submission Form */}
           <div className="lg:col-span-2 space-y-6">
-            {/* Form Fields Section */}
+            {/* Form Fields Section (operators and admins only) */}
+            {canEdit && (
             <div className="bg-slate-900/60 border border-slate-800 p-5 rounded-lg">
               <h2 className="text-sm font-semibold text-slate-200 mb-4 flex items-center space-x-2">
                 <span className="h-2 w-2 rounded-full bg-pink-500"></span>
@@ -408,6 +425,7 @@ export default function App() {
                 </button>
               </form>
             </div>
+            )}
 
             {/* Live Incident Stream */}
             <div className="bg-slate-900/60 border border-slate-800 p-5 rounded-lg">
@@ -511,6 +529,7 @@ export default function App() {
 
                 {/* Inspection Console Actions Footer */}
                 <div className="pt-4 border-t border-slate-800 space-y-2">
+                  {canEdit && (
                   <div className="grid grid-cols-2 gap-2">
                     <button 
                       onClick={() => handleUpdateStatus(selectedIncident.id || selectedIncident._id, 'In Progress')}
@@ -525,6 +544,7 @@ export default function App() {
                       Resolve Incident
                     </button>
                   </div>
+                  )}
                   <button 
                     onClick={() => setSelectedIncident(null)}
                     className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold py-2 rounded transition"
