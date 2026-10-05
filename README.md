@@ -260,6 +260,15 @@ The script:
 
 Then restart **both** backends. Tickets created on Desktop while only one side has restarted are refused with a 401, stay queued in Desktop's outbox, and are delivered automatically once both use the new key. Nothing is lost.
 
+**Production pair:** `.\rotate-ingest-key.ps1 -Production` does the same for `backend\server\.env.production` (`INGEST_API_KEY`) and Desktop's `backend\.env.production` (`ENTERPRISE_INGEST_KEY`), creating Desktop's file if it doesn't exist. This is also how the production bridge is first connected. Then restart both:
+
+```powershell
+.\start-production.ps1 -SkipBuild
+C:\Projects\DESKSOS-Desktop\backend\scripts\start-production.ps1 -SkipBuild
+```
+
+Desktop production already points at `https://localhost:5543` and trusts the mkcert CA through `NODE_EXTRA_CA_CERTS` (its `ecosystem.config.js`).
+
 ## 📡 API
 
 Signed-in requests send `Authorization: Bearer <token>`. Tokens last 8 hours and stop working immediately after a password change, role change or deactivation.
