@@ -267,6 +267,8 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 | 2026-10-05 | **Phase 1 merged and running locally** | ✅ Verified (admin set up; anonymous API access refused) |
 | 2026-10-05 | 2.1 Dashboard moved from Create React App to Vite | ✅ Verified (on branch `feat/phase2-production`) |
 | 2026-10-05 | 2.2 Backend serves the built dashboard | ✅ Verified (on branch) |
+| 2026-10-05 | 2.3 HTTPS | ✅ Verified (on branch); trusting the CA on other LAN PCs is an admin step |
+| 2026-10-05 | 2.4 Production PM2 config and start script | ✅ Verified (on branch, with test overrides); first real production start is an admin step |
 
 ### 0.3 Enterprise backups capture real data
 
@@ -599,6 +601,46 @@ Each finding was checked against the code before acting. All 8 were valid. Fixed
   - **Real browser against the backend serving the Vite build on one port, no proxy:** **17/17**, including **no security-policy violations** and **no unexpected console errors**. User management passes 14/14.
   - The violation check was proven able to fail: temporarily restricting `style-src` to `'self'` made it report the blocked Google Fonts stylesheet.
 - **Goal impact:** production can run as **one server on one port**, with no development server, no CDN and a strict security policy. This is the plan's "done when" for task 2.2, and the base for HTTPS (2.3) and the production start script (2.4).
+
+### 2.3 HTTPS
+
+- **Change** (`3bb37d2`):
+  - The server runs HTTPS when `TLS_CERT_PATH` and `TLS_KEY_PATH` are set (paths relative to `backend/server`). One without the other is fatal, and **production refuses to start without HTTPS** unless `ALLOW_HTTP_IN_PRODUCTION=true` (for a TLS proxy). An unreadable certificate or key, or a busy port, gives a clear fatal message.
+  - With HTTPS on, the security policy adds `upgrade-insecure-requests`. HSTS was already sent.
+  - **Production loads its own secrets** from `backend/server/.env.production`, which git ignores. A shared `JWT_SECRET` would let development tokens work on production, because user IDs exist in both databases.
+  - `scripts/gen-cert.ps1` finds mkcert even off PATH and issues a certificate from this PC's mkcert CA (the one Desktop already uses, and already trusted here). It covers `localhost`, `127.0.0.1`, `FORD-DC01` and the physical LAN address, skipping Hyper-V and WSL adapters. It exports the CA's **public** certificate for other PCs, never its key. `certs/` is ignored by git.
+  - The README covers setup, trusting the CA on LAN PCs (Chrome, Edge, Firefox) and `NODE_EXTRA_CA_CERTS`.
+- **Verification:**
+  - 5 config tests. Certificate issued for exactly the expected names; no private key copied; files ignored.
+  - **Real browser over HTTPS with normal certificate validation**, backend serving the dashboard: **17/17**. That includes the `wss://` live feed, sign-out of a deactivated user in 41 ms, and **no security-policy violations with the upgrade directive active**. User management passes 14/14.
+  - Windows validates the certificate, HSTS is present, and plain HTTP to the HTTPS port fails.
+- **Found:** Node.js doesn't use the Windows certificate store. The test's Node request failed until given `NODE_EXTRA_CA_CERTS`. **The Desktop bridge (Node) will need the same in task 2.8.**
+- **Admin step remaining:** import `desksos-ca.crt` on each other LAN PC that opens the dashboard (README → HTTPS).
+- **Goal impact:** *users'* sign-in tokens and *clients'* incident data are encrypted on the network, browsers trust the site without warnings, and production can't accidentally run unencrypted. This covers go-live item "HTTPS with a certificate trusted on client PCs" (pending the per-PC import).
+
+### 2.4 Production PM2 config and start script
+
+- **Change** (`ccc3db0`):
+  - `backend/server/ecosystem.config.js` defines PM2 app `desksos-enterprise`: port **5543**, `data/enterprise-prod.db`, HTTPS, dashboard served, restart policy, memory limit, logs.
+  - `start-production.ps1` (Administrator, PowerShell 7):
+    - checks PM2 reachability
+    - creates `.env.production` with its own `JWT_SECRET` and `INGEST_API_KEY` if missing (never printed)
+    - creates the certificate if missing, and warns under 30 days
+    - builds, or uses `-SkipBuild`
+    - replaces any previous instance, then starts and saves under PM2
+    - waits for HTTPS health
+    - on a new database, shows how to read the one-time admin password, taking the real log path from PM2 (PM2 adds the process ID to log names)
+  - **`.env.production` now overrides inherited variables**, so a stale value from a shell or the PM2 daemon can't replace production secrets. `DATABASE_PATH` is resolved from `backend/server`.
+- **Verification** (real PM2 daemon, with test name, port and database overrides so production wasn't touched):
+  - **Run 1** (full build): secrets generated, certificate valid for 823 days, healthy over HTTPS in production mode.
+  - **Run 2** (`-SkipBuild`, as the boot task will use it): **kept the existing secrets**, replaced the instance, exactly one registration, dev instance untouched, healthy.
+  - **Production browser flow over HTTPS against the PM2 instance: 17/17**, with no sample data (correct for production).
+  - **Override proven:** with a stale 28-character `JWT_SECRET` deliberately inherited, production still started with its own secret.
+  - Production without HTTPS: **refused**.
+  - The recovery script works against the production database.
+  - Afterwards the test instance was removed, PM2's saved list re-saved (no trace in the dump), and the test secrets deleted.
+- **Admin step remaining:** after merging, run `.\start-production.ps1` once from an Administrator PowerShell 7 window, then sign in with the one-time production admin password and change it.
+- **Goal impact:** *administrators* start or restart production with **one command that's safe to repeat**, with its own port, database and secrets. This is task 2.4's "done when". Restart on boot (2.5) builds on it with `-SkipBuild`.
 
 ### Correction (2026-10-05)
 
