@@ -158,6 +158,44 @@ export function checkPasswordStrength(password: unknown): string | null {
   return null;
 }
 
+// ── Administration ──────────────────────────────────────────────────────────
+export function listUsers(): User[] {
+  const rows = db.prepare("SELECT * FROM users ORDER BY active DESC, name COLLATE NOCASE").all() as UserRow[];
+  return rows.map(toUser);
+}
+
+export function findUserByEmail(email: string): User | undefined {
+  const row = db.prepare("SELECT * FROM users WHERE email = ?").get(email.trim()) as UserRow | undefined;
+  return row && toUser(row);
+}
+
+export function countActiveAdmins(): number {
+  return (db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND active = 1").get() as { n: number }).n;
+}
+
+// Role changes and deactivation bump token_version, so existing sessions end
+// immediately rather than carrying old permissions until their token expires.
+export function updateUser(id: number, changes: { name?: string; role?: Role; active?: boolean }): User {
+  const current = getUser(id);
+  if (!current) throw new Error("User not found");
+  const name = changes.name ?? current.name;
+  const role = changes.role ?? current.role;
+  const active = changes.active ?? current.active;
+  const revoke = role !== current.role || active !== current.active;
+  db.prepare(
+    `UPDATE users SET name = ?, role = ?, active = ?, token_version = token_version + ? WHERE id = ?`
+  ).run(name, role, active ? 1 : 0, revoke ? 1 : 0, id);
+  return getUser(id)!;
+}
+
+// Issues a new random password that must be changed at next sign-in, and
+// ends all of the user's sessions. Returns the password to show once.
+export function resetPassword(id: number): string {
+  const password = generatePassword();
+  setPassword(id, password, { mustChange: true });
+  return password;
+}
+
 // First run: with no accounts at all, create an admin with a random password
 // that must be changed at first sign-in. Returns the password so the caller
 // can show it once; returns null if users already exist.

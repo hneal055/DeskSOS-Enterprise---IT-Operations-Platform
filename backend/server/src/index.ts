@@ -9,10 +9,11 @@ import authRoutes from "./routes/auth";
 import userRoutes from "./routes/user";
 import incidentRoutes from "./routes/incidents";
 import ingestRoutes from "./routes/ingest";
+import adminUserRoutes from "./routes/adminUsers";
 import { initializeSocket } from "./services/socket";
 import { pingDatabase } from "./db";
 import { ensureInitialAdmin } from "./users";
-import { requireAuth } from "./middleware/auth";
+import { requireAuth, requireRole } from "./middleware/auth";
 import { securityHeaders, apiLimiter, loginLimiter, ingestLimiter } from "./middleware/security";
 
 // Initialize Express
@@ -68,6 +69,7 @@ app.use("/api/dashboard", requireAuth(), dashboardRoutes);
 app.use("/api/chat", requireAuth(), chatRoutes);
 app.use("/api/user", requireAuth(), userRoutes);
 app.use("/api/incidents", requireAuth(), incidentRoutes);
+app.use("/api/admin/users", requireAuth(), requireRole("admin"), adminUserRoutes);
 app.use("/api/ingest", ingestRoutes);
 
 // Health check: reports the real state of the incidents database

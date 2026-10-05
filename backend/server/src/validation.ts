@@ -35,6 +35,30 @@ export const loginBody = z.object({
   password: z.string({ required_error: "is required" }).min(1, "is required").max(256),
 });
 
+const roleEnum = z.enum(["admin", "operator", "viewer"], {
+  errorMap: () => ({ message: "must be one of admin, operator, viewer" }),
+});
+
+export const userIdParams = z.object({
+  id: z.coerce.number({ invalid_type_error: "must be a number" }).int().positive("must be a positive integer"),
+});
+
+export const createUserBody = z.object({
+  email: z.string({ required_error: "is required" }).trim().toLowerCase().email("must be a valid email address").max(254),
+  name: text(100),
+  role: roleEnum,
+});
+
+export const updateUserBody = z
+  .object({
+    name: text(100).optional(),
+    role: roleEnum.optional(),
+    active: z.boolean({ invalid_type_error: "must be true or false" }).optional(),
+  })
+  .refine((v) => v.name !== undefined || v.role !== undefined || v.active !== undefined, {
+    message: "provide at least one of name, role, active",
+  });
+
 export const changePasswordBody = z.object({
   currentPassword: z.string({ required_error: "is required" }).min(1, "is required").max(256),
   newPassword: z.string({ required_error: "is required" }).max(256),

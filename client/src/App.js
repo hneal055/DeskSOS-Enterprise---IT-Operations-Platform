@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import { apiFetch, getToken } from './auth';
+import UsersAdmin from './UsersAdmin';
 
 const API_BASE = ''; // Leverages the package.json proxy to bypass CORS
 
 export default function App({ user, onSignOut, onSessionEnded }) {
   // Viewers get a read-only console; the server enforces the same rule
   const canEdit = user.role === 'admin' || user.role === 'operator';
+  const isAdmin = user.role === 'admin';
+  const [view, setView] = useState('dashboard'); // 'dashboard' | 'users' (admins)
 
   // Incident & System States
   const [incidents, setIncidents] = useState([]);
@@ -284,6 +287,15 @@ export default function App({ user, onSignOut, onSessionEnded }) {
             <span className="text-slate-300">Gateway: {gatewayStatus}</span>
           </div>
 
+          {isAdmin && (
+            <button
+              onClick={() => setView(view === 'users' ? 'dashboard' : 'users')}
+              className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold px-3 py-1.5 rounded transition"
+            >
+              {view === 'users' ? 'Back to dashboard' : 'Users'}
+            </button>
+          )}
+
           <div className="flex items-center space-x-3 text-xs">
             <span className="text-slate-300" data-testid="signed-in-user">
               {user.name} <span className="text-slate-500 capitalize">({user.role})</span>
@@ -300,6 +312,10 @@ export default function App({ user, onSignOut, onSessionEnded }) {
 
       {/* Main Container */}
       <main className="flex-1 p-6 space-y-6 max-w-7xl mx-auto w-full">
+        {view === 'users' && isAdmin ? (
+          <UsersAdmin currentUser={user} />
+        ) : (
+        <>
         {/* Metric Cards */}
         <div className="grid grid-cols-4 gap-4">
           <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-lg">
@@ -560,6 +576,8 @@ export default function App({ user, onSignOut, onSessionEnded }) {
             )}
           </div>
         </div>
+        </>
+        )}
       </main>
     </div>
   );

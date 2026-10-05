@@ -9,7 +9,8 @@
     "build": "tsc",
     "seed": "ts-node src/seed.ts",
     "test": "jest --runInBand",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "user:reset-password": "node scripts/reset-password.js"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",
