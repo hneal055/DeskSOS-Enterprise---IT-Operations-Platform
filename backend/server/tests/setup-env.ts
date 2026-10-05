@@ -2,3 +2,4 @@
 process.env.NODE_ENV = "test";
 process.env.DATABASE_PATH = ":memory:";
 process.env.INGEST_API_KEY = "test-ingest-key";
+process.env.JWT_SECRET = "test-jwt-secret-for-the-jest-suite-0123456789";
