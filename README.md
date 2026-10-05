@@ -120,7 +120,33 @@ $env:DATABASE_PATH = 'data\enterprise-prod.db'
 npm run user:reset-password -- admin@desksos.local
 ```
 
-Still to come: restart on boot, a LAN firewall rule, log rotation and monitoring (Phase 2 and 3 of the [readiness plan](docs/PRODUCTION-READINESS-PLAN.md)). The earlier Docker Compose files were removed because they no longer matched the application.
+**Restart on boot, nightly backup, health monitor and firewall**, from an Administrator PowerShell 7 window:
+
+```powershell
+.\register-production-tasks.ps1 -DryRun   # preview (no admin needed)
+.\register-production-tasks.ps1           # register or update
+.\register-production-tasks.ps1 -Unregister
+```
+
+| What | Schedule | Details |
+|---|---|---|
+| `DeskSOS Enterprise Startup` | at boot + 3 min | `start-production.ps1 -SkipBuild`. Waits until DeskSOS Desktop's startup task (+1 min) has run, because two PM2 commands at once can each spawn a daemon |
+| `DeskSOS Enterprise Daily Backup` | daily 02:30 | Verified backup of `enterprise-prod.db` into `backups\production` (14 kept). Fails loudly if the database disappears while backups exist |
+| `DeskSOS Enterprise Health Monitor` | every 5 min | Checks `https://localhost:5543/health` with normal certificate validation. Alerts once on DOWN and once on recovery, and warns daily before the certificate expires (14 days) |
+| Firewall `DeskSOS Enterprise (HTTPS 5543, LAN only)` | n/a | Inbound TCP 5543 from the **local subnet only**, under every network profile |
+
+The tasks run as the current user whether or not anyone is signed in, using the MSI install of PowerShell 7. The script refuses to use the Microsoft Store version, which can't run in such tasks. Logs are in `backend\server\logs\` (`startup.log`, `backup.log`, `monitor.log`).
+
+**Alerts** go to a Teams channel and/or email. Set these as user-level environment variables, then run the register script again:
+
+```powershell
+[Environment]::SetEnvironmentVariable('ALERT_TEAMS_WEBHOOK_URL', '<incoming webhook or Workflows URL>', 'User')
+# optional email: ALERT_SMTP_HOST, ALERT_SMTP_PORT, ALERT_SMTP_USER, ALERT_SMTP_PASS, ALERT_TO
+```
+
+Without them, alerts are only written to `monitor.log`.
+
+The earlier Docker Compose files were removed because they no longer matched the application.
 
 ## 🏗️ Architecture
 
