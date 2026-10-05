@@ -252,6 +252,7 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 | 2026-10-04 | 0.2 Desktop production running | ✅ Verified |
 | 2026-10-04 | 0.1 Scheduled backup and health monitor working | ✅ Verified (boot task pending a reboot test) |
 | 2026-10-05 | 0.6 Desktop PRs #1 and #2 merged; `main` current and CI green | ✅ Verified |
+| 2026-10-05 | 1.2 Strong `JWT_SECRET` required; no fallback | ✅ Verified (on branch `feat/phase1-secure-enterprise`) |
 
 ### 0.3 Enterprise backups capture real data
 
@@ -347,6 +348,21 @@ A task counts as done only once its verification has passed. "Implemented" isn't
   - **Dependabot can't patch the Rust crate `glib`** (needs ≥ 0.20, Tauri pins 0.18.5). It's Linux-only and not compiled into the Windows app. Resolve with a Tauri upgrade, and keep it in mind for task 4.4.
 
 **Phase 0 status: complete.** All tasks are verified, except the boot-task reboot test, which moves to the Phase 2 exit gate.
+
+### 1.2 Strong `JWT_SECRET` required; no fallback
+
+- **Change** (`f114dd8`): Enterprise refuses to start if `JWT_SECRET` is missing, shorter than 32 characters, or one of the placeholder values published in this repo. The hard-coded fallback is gone.
+- **Two things were found and fixed along the way:**
+  - The real `backend/server/.env` contained the **published placeholder** as its secret. It was replaced with a random 64-character value (never printed).
+  - A **stale 28-character user-level Windows variable `JWT_SECRET`** overrode both projects' `.env` files, because dotenv never overrides an existing variable. The running Enterprise backend had been signing tokens with it all along. With the owner's approval it was removed, as Desktop's runbook (§3.2) already prescribed. Desktop's `.env` has its own 88-character secret.
+- **Verification:**
+  - Unit tests cover missing, placeholder, short and valid secrets; the suite passes 14/14.
+  - Startup against the built server: placeholder **refused**, short secret **refused**, stale 28-character variable **refused**, strong `.env` secret **starts and is healthy**.
+  - After removal, the user variable is gone from the registry and a new shell doesn't see it.
+  - Desktop production, Desktop dev and Enterprise stayed healthy throughout.
+- **Goal impact:** before this, anyone who read the repo could forge a valid token for the API. This closes that, and moves forward go-live item "no default secrets in code; startup fails if a secret is missing or weak". It protects *users'* accounts once task 1.1 adds them.
+- **Operator note:** windows that were already open still carry the old variable. **Start Enterprise only from a newly opened Administrator window** (or restart VS Code first), or it will refuse to start with "JWT_SECRET must be at least 32 characters".
+- **Test-harness lesson:** in PowerShell, `[Environment]::SetEnvironmentVariable(name, $null, ...)` sets an empty string instead of deleting. Use `$env:NAME = $null` (process) or `[NullString]::Value` (user or machine).
 
 ### Correction (2026-10-05)
 
