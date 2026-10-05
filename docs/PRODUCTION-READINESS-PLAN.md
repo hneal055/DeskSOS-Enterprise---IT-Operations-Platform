@@ -264,6 +264,7 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 | 2026-10-05 | 1.10 Ingest key rotation, proven lossless | ✅ Verified (on branch) |
 | 2026-10-05 | **Phase 1 exit gate** | ✅ Passed (on branch) |
 | 2026-10-05 | PR #11 review: 8 CodeRabbit findings | ✅ All fixed and verified |
+| 2026-10-05 | **Phase 1 merged and running locally** | ✅ Verified (admin set up; anonymous API access refused) |
 
 ### 0.3 Enterprise backups capture real data
 
@@ -550,6 +551,20 @@ Each finding was checked against the code before acting. All 8 were valid. Fixed
 | 8 | Overlapping resets possible | One action per user at a time; buttons disabled while working | Code review and build |
 
 **Totals after the fixes:** backend **149/149**; browser **15/15** (sign-in) and **14/14** (user management). Replies posted on each review comment.
+
+### Phase 1 merged and running locally
+
+- **Change:**
+  - The owner merged PR #11 (`19205fd`).
+  - Local `main` now tracks `origin/main` and was fast-forwarded.
+  - New backend dependencies were installed.
+  - The temporary worktree, which held a copy of `.env`, and the merged local branch were removed.
+  - The owner restarted Enterprise from a new Administrator window. The server created `admin@desksos.local`; the owner signed in with the one-time password and set their own.
+- **Verification** (live system, read-only checks):
+  - The admin account shows the password change completed (`must_change_password = 0`, token version bumped) and a recorded sign-in.
+  - `/health` returns ok.
+  - **An anonymous `GET /api/incidents` returns 401.** Before Phase 1 it returned every incident.
+- **Goal impact:** Phase 1's protection is now live on the machine, not just on a branch. Next for *administrators*: add the team under **Users**. Next in the plan: Phase 2 (production setup).
 
 ### Correction (2026-10-05)
 
