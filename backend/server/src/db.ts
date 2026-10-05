@@ -5,6 +5,8 @@ import config from "./config";
 
 export type Severity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
 export const SEVERITIES: Severity[] = ["CRITICAL", "HIGH", "MEDIUM", "LOW"];
+// Incident lifecycle used by the dashboard and the ingest route
+export const STATUSES = ["Open", "In Progress", "Resolved"];
 
 export interface Incident {
   id: number;

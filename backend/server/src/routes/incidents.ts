@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
-import { listIncidents, createIncident, getIncident, updateIncidentStatus, SEVERITIES, Severity } from '../db';
+import { listIncidents, createIncident, getIncident, updateIncidentStatus, Severity } from '../db';
 import { requireRole } from '../middleware/auth';
+import { validate } from '../middleware/validate';
+import { createIncidentBody, updateIncidentBody, incidentIdParams } from '../validation';
 
 const router = Router();
 
@@ -21,25 +23,18 @@ router.get('/', (req: Request, res: Response) => {
   }
 });
 
-// POST /api/incidents (Enterprise UI)
-router.post('/', canEdit, (req: Request, res: Response) => {
+// POST /api/incidents (Enterprise UI). Body is validated and trimmed by zod.
+router.post('/', canEdit, validate({ body: createIncidentBody }), (req: Request, res: Response) => {
   try {
     const { title, description, category, severity, location, assignedTo, status } = req.body;
-
-    if (!title || typeof title !== 'string' || !description || typeof description !== 'string') {
-      return res.status(400).json({ error: 'Valid title and description strings are required' });
-    }
-
-    const lat = Number(location?.latitude);
-    const lon = Number(location?.longitude);
     const newIncident = createIncident({
-      title: title.trim(),
-      description: description.trim(),
+      title,
+      description,
       category: category || 'Infrastructure',
-      severity: SEVERITIES.includes(severity) ? (severity as Severity) : 'MEDIUM',
+      severity: (severity as Severity) || 'MEDIUM',
       status: status || 'Open',
-      latitude: Number.isFinite(lat) ? lat : undefined,
-      longitude: Number.isFinite(lon) ? lon : undefined,
+      latitude: location?.latitude,
+      longitude: location?.longitude,
       assignedTo: assignedTo || 'Unassigned',
       source: 'enterprise-ui',
     });
@@ -52,7 +47,7 @@ router.post('/', canEdit, (req: Request, res: Response) => {
 });
 
 // PATCH /api/incidents/:id
-router.patch('/:id', canEdit, (req: Request, res: Response) => {
+router.patch('/:id', canEdit, validate({ params: incidentIdParams, body: updateIncidentBody }), (req: Request, res: Response) => {
   try {
     const id = Number(req.params.id);
     const { status } = req.body;
@@ -65,7 +60,7 @@ router.patch('/:id', canEdit, (req: Request, res: Response) => {
       // Release lock automatically upon resolution
       delete activeLocks[id];
     }
-    const incident = status ? updateIncidentStatus(id, status) : getIncident(id);
+    const incident = updateIncidentStatus(id, status);
 
     req.app.get('io')?.emit('incident:updated', incident);
     res.json(incident);
@@ -75,9 +70,12 @@ router.patch('/:id', canEdit, (req: Request, res: Response) => {
 });
 
 // POST /api/incidents/:id/lock
-router.post('/:id/lock', canEdit, (req: Request, res: Response) => {
+router.post('/:id/lock', canEdit, validate({ params: incidentIdParams }), (req: Request, res: Response) => {
   try {
     const id = Number(req.params.id);
+    if (!getIncident(id)) {
+      return res.status(404).json({ error: 'Incident target not found in stream' });
+    }
     // The lock holder is the signed-in user, not a name sent by the client,
     // so nobody can lock incidents in someone else's name
     const operatorName = req.user!.name;

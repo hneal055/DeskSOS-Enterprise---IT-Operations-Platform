@@ -1,6 +1,8 @@
 import { Router, Request, Response } from "express";
 import { authenticate, checkPasswordStrength, setPassword, verifyPasswordFor, User } from "../users";
 import { requireAuth, signToken } from "../middleware/auth";
+import { validate } from "../middleware/validate";
+import { loginBody, changePasswordBody } from "../validation";
 
 const router = Router();
 
@@ -9,11 +11,8 @@ function publicUser(u: User) {
 }
 
 // POST /api/auth/login
-router.post("/login", (req: Request, res: Response) => {
-  const { email, password } = req.body ?? {};
-  if (typeof email !== "string" || typeof password !== "string" || !email.trim() || !password) {
-    return res.status(400).json({ error: "Email and password are required" });
-  }
+router.post("/login", validate({ body: loginBody }), (req: Request, res: Response) => {
+  const { email, password } = req.body;
   const user = authenticate(email, password);
   // Same response for unknown email, wrong password and deactivated account
   if (!user) return res.status(401).json({ error: "Invalid email or password" });
@@ -37,9 +36,10 @@ router.get("/me", requireAuth({ allowPasswordChangePending: true }), (req: Reque
 router.post(
   "/change-password",
   requireAuth({ allowPasswordChangePending: true }),
+  validate({ body: changePasswordBody }),
   (req: Request, res: Response) => {
-    const { currentPassword, newPassword } = req.body ?? {};
-    if (typeof currentPassword !== "string" || !verifyPasswordFor(req.user!.id, currentPassword)) {
+    const { currentPassword, newPassword } = req.body;
+    if (!verifyPasswordFor(req.user!.id, currentPassword)) {
       return res.status(401).json({ error: "Current password is incorrect" });
     }
     const weak = checkPasswordStrength(newPassword);
