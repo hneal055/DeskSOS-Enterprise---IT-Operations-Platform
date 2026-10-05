@@ -259,6 +259,7 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 | 2026-10-05 | 1.5 Dashboard sign-in, forced password change, read-only viewers | ✅ Verified (on branch) |
 | 2026-10-05 | 1.6 Security headers, rate limits, body cap, configurable CORS | ✅ Verified (on branch) |
 | 2026-10-05 | 1.7 Input validation on every write route | ✅ Verified (on branch) |
+| 2026-10-05 | 1.8 User management for admins, plus server-side recovery | ✅ Verified (on branch) |
 
 ### 0.3 Enterprise backups capture real data
 
@@ -472,6 +473,21 @@ A task counts as done only once its verification has passed. "Implemented" isn't
   - Ingest keeps its existing, already-tested validation.
 - **Verification:** 11 new tests covering valid input with trimming and defaults, all problems reported together, whitespace-only and overlong fields, coordinate ranges and null handling, spoofed fields ignored, status list, bad IDs, 404 lock, and auth body checks. Suite: **88/88**. The real-browser end-to-end run still passes **13/13**, so the dashboard's own requests are accepted.
 - **Goal impact:** bad or malicious input can no longer corrupt incident data (an arbitrary status, a spoofed source, a lock on a phantom incident). *Clients'* records stay consistent and *operators* get clear messages instead of silent bad data. This is go-live item "invalid payloads return 400 with details".
+
+### 1.8 User management for admins, plus server-side recovery
+
+- **Change** (`8b48d04`):
+  - **`/api/admin/users`** (admins only) to list users; add a user with a **server-generated temporary password, shown once**, which the user must change at first sign-in; change name or role; deactivate and reactivate; and reset a password. Admins never choose or see users' real passwords.
+  - **Role changes, deactivation and password resets end that user's sessions immediately.**
+  - **Safeguards:** admins can't deactivate or demote themselves, and a backstop check keeps at least one active admin.
+  - **Dashboard Users screen** (admins only): add form, one-time password banner with Copy, role picker, deactivate and reactivate, and reset password with a confirmation.
+  - **Recovery:** `npm run user:reset-password -- <email>`, run on the server, issues a temporary password and reactivates the account. `--list` shows accounts. This covers the case where nobody can sign in as an admin.
+- **Verification:**
+  - 12 API tests covering admin-only access, no hashes in responses, onboarding to first sign-in to own password, case-insensitive duplicates rejected, validation details, a role change applying immediately and ending sessions, deactivate and reactivate, reset ending sessions, 404s and empty updates, and self-protection.
+  - The access matrix now covers **15 protected routes**. Suite: **107/107**.
+  - **Real-browser run, 14/14 checks:** open Users; own row protected; add an operator and see the temporary password; new user forced to set a password and seeing operator features but no Users button; role change; deactivate and reactivate; reset with the old password refused; user back as a viewer; **CLI recovery** temporary password lets the admin sign in. The sign-in flow still passes 13/13.
+- **Correction made during review:** a test named "the last active admin can't be removed" actually passed because of the self-protection rule. Through the API the last-admin guard can't be reached, since the acting admin is always another active admin. The test was renamed to what it really proves, and the guard is documented as a backstop.
+- **Goal impact:** *administrators* can onboard and offboard staff, adjust permissions and recover accounts **without touching the database**. This is the plan's "done when" for task 1.8. *Users* get their own accounts with a password only they know, and leavers lose access the moment they're deactivated.
 
 ### Correction (2026-10-05)
 

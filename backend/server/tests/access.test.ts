@@ -19,6 +19,10 @@ const PROTECTED: Array<[string, string]> = [
   ["get", "/api/user/me"],
   ["get", "/api/auth/me"],
   ["post", "/api/auth/change-password"],
+  ["get", "/api/admin/users"],
+  ["post", "/api/admin/users"],
+  ["patch", "/api/admin/users/1"],
+  ["post", "/api/admin/users/1/reset-password"],
 ];
 
 function call(method: string, path: string) {
