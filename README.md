@@ -44,7 +44,7 @@ cd client; npm install; cd ..
 
 ### Local Development on Windows (PowerShell scripts)
 
-Two scripts in the repo root manage a dev session: the backend runs under PM2 and the React client runs with `npm start`. The backend always loads `backend/server/.env` (not the repo-root `.env`, which belongs to a different stack). It listens on port 5100 because 5000 is used by the DESKSOS-Desktop backend.
+Two scripts in the repo root manage a dev session: the backend runs under PM2 and the React dashboard runs on the Vite dev server (`npm start`, port 3000). The backend always loads `backend/server/.env` (not the repo-root `.env`, which belongs to a different stack). It listens on port 5100 because 5000 is used by the DESKSOS-Desktop backend.
 
 | Script | What it does |
 | ------ | ------------ |
@@ -65,7 +65,7 @@ Two scripts in the repo root manage a dev session: the backend runs under PM2 an
 | `-DryRun` | Show what would be stopped without changing anything |
 | `-Backup` | Run `backup-desksos.ps1` before tearing down |
 | `-KillPm2` | Stop **all** PM2 daemons and every app they manage (full PM2 reset, also affects non-DeskSOS PM2 apps) |
-| `-ClearCache` | Delete `client/node_modules/.cache` (fixes stale React builds) |
+| `-ClearCache` | Delete `client/node_modules/.vite` (fixes a stale dev-server cache) |
 | `-Force` | Kill whatever holds ports 5100/3000, even if it doesn't look like DeskSOS |
 
 The PM2 process name is deliberately `desksos-enterprise-backend`. The sibling `DESKSOS-Desktop` project registers its own backend as `desksos-backend` (port 5443), and sharing that name made `start-dev.ps1` restart the wrong app. Keep PM2 names unique per project.
@@ -105,7 +105,7 @@ Not supported yet. Production setup (HTTPS, a production build of the dashboard 
 ## 🛠️ Technology Stack
 
 - **Backend:** Node.js 22+, Express 4, TypeScript, Socket.IO 4, better-sqlite3, jsonwebtoken
-- **Frontend:** React 18 (Create React App), Socket.IO client, Tailwind (CDN in development)
+- **Frontend:** React 18 built with Vite, Socket.IO client, Tailwind CSS 3 (compiled at build time)
 - **Process management:** PM2
 - **Tests and CI:** Jest and supertest (backend), GitHub Actions
 
@@ -124,7 +124,7 @@ DESKSOS/
 │   ├── scripts/backup-db.js    # Verified online backup
 │   ├── tests/                  # Jest + supertest
 │   └── .env.example
-├── client/                     # React dashboard (Create React App)
+├── client/                     # React dashboard (Vite)
 ├── docs/                       # Plans and API reference
 ├── start-dev.ps1 / stop-dev.ps1        # Dev session start / teardown
 ├── start-backend.ps1 / stop-backend.ps1

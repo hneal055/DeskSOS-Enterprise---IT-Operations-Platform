@@ -16,7 +16,7 @@
 #   .\stop-dev.ps1 -DryRun      # show what would be stopped, change nothing
 #   .\stop-dev.ps1 -Backup      # run backup-desksos.ps1 first
 #   .\stop-dev.ps1 -KillPm2     # stop ALL PM2 daemons and apps they manage (full PM2 reset)
-#   .\stop-dev.ps1 -ClearCache  # also clear the React dev server cache
+#   .\stop-dev.ps1 -ClearCache  # also clear the Vite dev server cache
 #   .\stop-dev.ps1 -Force       # kill port holders even if they don't look like DeskSOS
 
 param(
@@ -32,8 +32,10 @@ $Ports = @(5100, 3000)
 $Pm2Name = "desksos-enterprise-backend"
 # Command-line fragments that identify processes belonging to this project
 $OwnedPatterns = @(
+    # Matches this project's processes by path, including the Vite dev server
+    # (node ...\DESKSOS\client\node_modules\vite\bin\vite.js)
     [regex]::Escape($ProjectRoot),
-    "react-scripts",
+    "react-scripts",   # dashboard dev server before the Vite move
     "backend\\server\\dist",
     "ProcessContainerFork",
     "pm2 logs $Pm2Name",
@@ -51,7 +53,7 @@ function Stop-Tree([int]$ProcessId, [string]$Label) {
         Write-Host "  [dry-run] Would stop $Label (PID $ProcessId)" -ForegroundColor DarkGray
         return
     }
-    # /T kills child processes too (npm -> node -> react-scripts)
+    # /T kills child processes too (npm -> node -> vite)
     taskkill /PID $ProcessId /T /F 2>&1 | Out-Null
     Write-Host "  -> Stopped $Label (PID $ProcessId)" -ForegroundColor Green
 }
@@ -214,14 +216,14 @@ else {
         Write-Host "  -> No orphaned PM2 daemons" -ForegroundColor Gray
     }
 }
-$cacheDir = Join-Path $ProjectRoot "client\node_modules\.cache"
+$cacheDir = Join-Path $ProjectRoot "client\node_modules\.vite"
 if ($ClearCache -and (Test-Path $cacheDir)) {
     if ($DryRun) {
         Write-Host "  [dry-run] Would delete $cacheDir" -ForegroundColor DarkGray
     }
     else {
         Remove-Item $cacheDir -Recurse -Force
-        Write-Host "  -> Cleared React dev server cache" -ForegroundColor Green
+        Write-Host "  -> Cleared Vite dev server cache" -ForegroundColor Green
     }
 }
 
