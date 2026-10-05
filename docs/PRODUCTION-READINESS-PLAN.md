@@ -269,6 +269,8 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 | 2026-10-05 | 2.2 Backend serves the built dashboard | ✅ Verified (on branch) |
 | 2026-10-05 | 2.3 HTTPS | ✅ Verified (on branch); trusting the CA on other LAN PCs is an admin step |
 | 2026-10-05 | 2.4 Production PM2 config and start script | ✅ Verified (on branch, with test overrides); first real production start is an admin step |
+| 2026-10-05 | 2.7 Structured logs and security audit log | ✅ Verified (on branch) |
+| 2026-10-05 | 2.8 Desktop production → Enterprise production bridge | ✅ Verified end to end (Enterprise branch + Desktop PR #7); key pairing is an admin step |
 
 ### 0.3 Enterprise backups capture real data
 
@@ -641,6 +643,38 @@ Each finding was checked against the code before acting. All 8 were valid. Fixed
   - Afterwards the test instance was removed, PM2's saved list re-saved (no trace in the dump), and the test secrets deleted.
 - **Admin step remaining:** after merging, run `.\start-production.ps1` once from an Administrator PowerShell 7 window, then sign in with the one-time production admin password and change it.
 - **Goal impact:** *administrators* start or restart production with **one command that's safe to repeat**, with its own port, database and secrets. This is task 2.4's "done when". Restart on boot (2.5) builds on it with `-SkipBuild`.
+
+### 2.7 Structured logs and security audit log
+
+- **Change** (`5658468`):
+  - winston writes to stdout and stderr: **JSON lines in production**, short readable lines in development, silent in tests. PM2 captures the output, and the already-configured **`pm2-logrotate`** rotates it (daily, **14 days**, compressed, 10 MB cap), so there are no extra log files or dependencies.
+  - **Request log**, which runs first so body-parser errors are logged too: method, path without the query string, status, duration, user and IP. Health checks and static files are logged at debug.
+  - **Security audit events**, closing the 1.9 follow-up, each recording who did it: `auth.login`, `auth.login_failed`, `auth.password_changed`, `auth.password_change_failed`, `user.created`, `user.updated` (from → to), `user.password_reset`.
+  - **Never logged:** passwords, temporary passwords, tokens, keys.
+  - The first-run banner stays plain text deliberately, because scripts read it.
+  - Production `LOG_LEVEL=info` is set in `ecosystem.config.js`, since the shared `.env` sets `debug` for development. The README has a new Logs section.
+- **Verification:**
+  - 8 tests: request fields, the query string left out, levels, body-parser errors logged, audit events with actor and changes, **no password, temporary password or token in any entry**. Suite: **170/170**.
+  - **Live production run:** every stdout line parses as JSON except the 6-line first-run banner. At `info` level, routine requests (health, page) produce no lines while an API refusal does.
+- **Found:** production first logged health checks at debug level because it inherited `LOG_LEVEL=debug` from the shared `.env`. Fixed by setting `info` in the PM2 production config.
+- **Goal impact:** *administrators* can see who signed in, who failed, and who created, changed or reset accounts, and search request history by status, path or user, without logs filling the disk. Covers go-live item "logs rotate", and supports security reviews and incident handling.
+
+### 2.8 Desktop production → Enterprise production bridge
+
+- **Change:**
+  - **Desktop PR #7** (`d529b57`): production loads `backend/.env.production` with override (for its own `ENTERPRISE_INGEST_KEY`). `env_production` points at `https://localhost:5543/api/ingest/incidents`, source `desksos-desktop-prod`, and sets **`NODE_EXTRA_CA_CERTS`** to the mkcert root CA. Bridge errors now include fetch's underlying cause. `.gitignore` now covers `.env.production`, which it didn't before. OPERATIONS.md 3.8 updated.
+  - **Enterprise** (`6d8dbe3`): `rotate-ingest-key.ps1 -Production` pairs the two production keys, creating Desktop's file if needed. README updated.
+- **Verification:**
+  - Desktop tests **80/80**, 5 new.
+  - **`-Production` rotation** on PowerShell 5.1 and 7: production `JWT_SECRET` untouched, one key line, keys match, nothing printed.
+  - **End to end with throwaway production-mode instances, both over HTTPS:**
+    - **with** `NODE_EXTRA_CA_CERTS`, Desktop's P1 ticket arrived in Enterprise as **CRITICAL** from `desksos-desktop-prod` (Enterprise logged `POST /api/ingest/incidents 201`)
+    - **without** it, delivery failed and the ticket stayed queued. The setting is required, not decorative.
+- **Found during verification:**
+  - A first test run reported production's `JWT_SECRET` as not kept. The **test data** was malformed: in PowerShell the comma binds tighter than `+`, which joined two lines into one. The script was correct, and the rerun with proper data confirmed it.
+  - Node's "fetch failed" hid the certificate error. Desktop now logs the cause.
+- **Admin step remaining** (after Enterprise production is running): `.\rotate-ingest-key.ps1 -Production`, then restart both production backends.
+- **Goal impact:** tickets raised on *client* PCs through Desktop production reach the Enterprise production dashboard encrypted and authenticated, with production and development fully separated (keys, sources, databases). This is the plan's "done when" for 2.8, pending the admin pairing step.
 
 ### Correction (2026-10-05)
 
