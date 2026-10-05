@@ -253,6 +253,7 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 | 2026-10-04 | 0.1 Scheduled backup and health monitor working | ✅ Verified (boot task pending a reboot test) |
 | 2026-10-05 | 0.6 Desktop PRs #1 and #2 merged; `main` current and CI green | ✅ Verified |
 | 2026-10-05 | 1.2 Strong `JWT_SECRET` required; no fallback | ✅ Verified (on branch `feat/phase1-secure-enterprise`) |
+| 2026-10-05 | 1.1 Real accounts replace the "any password works" login | ✅ Verified (on branch) |
 
 ### 0.3 Enterprise backups capture real data
 
@@ -363,6 +364,23 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 - **Goal impact:** before this, anyone who read the repo could forge a valid token for the API. This closes that, and moves forward go-live item "no default secrets in code; startup fails if a secret is missing or weak". It protects *users'* accounts once task 1.1 adds them.
 - **Operator note:** windows that were already open still carry the old variable. **Start Enterprise only from a newly opened Administrator window** (or restart VS Code first), or it will refuse to start with "JWT_SECRET must be at least 32 characters".
 - **Test-harness lesson:** in PowerShell, `[Environment]::SetEnvironmentVariable(name, $null, ...)` sets an empty string instead of deleting. Use `$env:NAME = $null` (process) or `[NullString]::Value` (user or machine).
+
+### 1.1 Real accounts replace the "any password works" login
+
+- **Change:**
+  - New `users` table: case-insensitive unique email, name, role (`admin`, `operator` or `viewer`, enforced by a database CHECK), active flag, `must_change_password`, `token_version` and timestamps.
+  - Passwords are hashed with Node's built-in **scrypt** (N=32768, random salt, constant-time comparison). The plan said bcryptjs; scrypt avoids another dependency and the native-build problems seen with `bcrypt`.
+  - `POST /api/auth/login` checks real credentials. It returns the same 401 for an unknown email, a wrong password or a deactivated account, and takes about the same time in each case.
+  - Tokens last **8 hours**, use HS256 only, and carry `token_version`. Changing a password or deactivating an account **invalidates existing tokens immediately**.
+  - New `GET /api/auth/me` and `POST /api/auth/change-password` (minimum 12 characters; returns a fresh token). `/register` is removed, since admins create users (task 1.8).
+  - **First run:** with no users at all, the server creates `admin@desksos.local` with a random 24-character password, printed once. Until it's changed, that account can only view itself and change its password (`PASSWORD_CHANGE_REQUIRED`).
+- **Verification:**
+  - 16 new tests; the suite passes 30/30. They cover hashing and salting, login success, case-insensitive email, identical failures, the old placeholder behavior being gone, `/register` returning 404, missing, malformed and forged tokens, instant revocation on deactivation, the forced password change flow, and old tokens dying after a change.
+  - Live first-run on a throwaway server: banner printed; login works and is flagged; the change works; the old password is refused and the new one accepted; no password is printed on the second start.
+  - Failed-login timing: known email 54 ms, unknown email 53 ms (median of 9).
+- **Goal impact:** this closes the most serious gap from the assessment. Before, **anyone could get an admin token with any password**. *Users* now have individual accounts with roles, which is the foundation for tasks 1.3–1.9: protected routes and socket, sign-in screen, user management and audit trail. It moves forward the go-live items for authentication and "default and first-run passwords changed".
+- **Administrator note:** the first-run password appears in the startup output, which PM2 also writes to its log file. Because it must be changed at first sign-in, the logged value stops working right away. Sign in and change it promptly after the first deployment.
+- **Not yet in effect:** incident, dashboard, chat and user routes are still open. Task 1.3 puts them behind sign-in.
 
 ### Correction (2026-10-05)
 

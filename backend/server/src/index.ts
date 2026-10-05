@@ -11,6 +11,7 @@ import incidentRoutes from "./routes/incidents";
 import ingestRoutes from "./routes/ingest";
 import { initializeSocket } from "./services/socket";
 import { pingDatabase } from "./db";
+import { ensureInitialAdmin } from "./users";
 
 // Initialize Express
 const app: Express = express();
@@ -110,6 +111,16 @@ app.use(
 
 // Start server (skipped when imported by tests)
 if (require.main === module) {
+  const initialAdmin = ensureInitialAdmin();
+  if (initialAdmin) {
+    console.log("=".repeat(64));
+    console.log("  DESKSOS ENTERPRISE FIRST-RUN ADMIN ACCOUNT. SAVE THIS NOW.");
+    console.log(`  Email:    ${initialAdmin.email}`);
+    console.log(`  Password: ${initialAdmin.password}`);
+    console.log("  It is shown only once and must be changed at first sign-in.");
+    console.log("=".repeat(64));
+  }
+
   const PORT = config.port;
   httpServer.listen(PORT, () => {
     console.log(`=====================================`);
