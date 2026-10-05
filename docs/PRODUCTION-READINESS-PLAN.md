@@ -257,6 +257,8 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 | 2026-10-05 | 1.3 Every API route requires sign-in, with role checks | ✅ Verified (on branch) |
 | 2026-10-05 | 1.4 Live socket requires sign-in; no identity spoofing | ✅ Verified (on branch) |
 | 2026-10-05 | 1.5 Dashboard sign-in, forced password change, read-only viewers | ✅ Verified (on branch) |
+| 2026-10-05 | 1.6 Security headers, rate limits, body cap, configurable CORS | ✅ Verified (on branch) |
+| 2026-10-05 | 1.7 Input validation on every write route | ✅ Verified (on branch) |
 
 ### 0.3 Enterprise backups capture real data
 
@@ -441,6 +443,35 @@ A task counts as done only once its verification has passed. "Implemented" isn't
   - Screenshots reviewed: sign-in, change password, admin dashboard, viewer dashboard, session ended.
 - **Goal impact:** *users* can now actually use the secured system. Sign-in, first-run setup and sign-out work end to end in a browser, and viewers get a read-only console matching their permissions. With 1.1–1.5 done, the branch is usable again and no longer breaks the dashboard.
 - **Note:** the end-to-end harness lives in `C:\tmp\e2e-phase1` for now. It becomes the basis of the automated bridge and UI tests in tasks 4.1 and 4.2.
+
+### 1.6 Security headers, rate limits, body cap, configurable CORS
+
+- **Change** (`25d5f11`):
+  - **helmet** security headers on every response, including errors: `nosniff`, frame protection, HSTS, a strict CSP, and no `X-Powered-By`.
+  - **Rate limits** per IP per 15 minutes, each configurable in `.env`:
+    - general API: 600
+    - sign-in: **10 failed attempts per IP + email**; successful sign-ins don't count, so one person's typos don't lock out their colleagues
+    - ingest: 2000, kept separate so a Desktop backlog isn't throttled by dashboard traffic
+  - **Request bodies capped at 100 KB.** Oversized bodies get a clear 413, malformed JSON a plain 400, and 500 errors **no longer return internal error messages**.
+  - **CORS and socket origins come from `CORS_ORIGINS`** instead of being hard-coded. All new settings are documented in `.env.example`.
+- **Verification:**
+  - 12 new tests: headers present (also on 401s); allowed and other origins; sign-in limit blocks an account after N failures, even with the right password; failures counted per account; successes not counted; general limit returns 429; ingest unaffected; health not limited; 413 and malformed-JSON handling.
+  - Live server: the general limit trips at the configured value (`401 ×5, then 429`), ingest keeps returning 201, and the `CORS_ORIGINS` override is honored.
+  - Production audit still 0 after adding zod.
+- **Found during verification:** the general limiter was first mounted with a regular expression, which **never matches in Express 4**. The live check showed it never triggered. It's now mounted on `/api` with a skip for ingest, and a dedicated test guards it.
+- **Goal impact:** brute-forcing *users'* passwords is no longer practical, request floods are capped, and responses carry standard browser protections. This covers go-live security items "security headers" and "login throttled", and prepares the configuration for production (task 2.6: LAN origin).
+
+### 1.7 Input validation on every write route
+
+- **Change** (`e4e6788`):
+  - A `validate()` middleware (zod) checks and normalizes bodies and route parameters, trims text, drops unknown fields, and answers bad requests with `400 { error, details[] }` listing every problem.
+  - **Incidents:** create is limited to title 1–255, description 1–20000, category and assignee up to 100, severity and status from fixed lists, and coordinates in range. A client-supplied `source` or `id` is ignored.
+  - **Status updates** accept only `Open`, `In Progress` or `Resolved`. Before, any string was stored.
+  - Incident IDs must be positive integers, and **locking a non-existent incident returns 404** instead of succeeding.
+  - **Sign-in** bodies are validated, and passwords are capped at 256 characters.
+  - Ingest keeps its existing, already-tested validation.
+- **Verification:** 11 new tests covering valid input with trimming and defaults, all problems reported together, whitespace-only and overlong fields, coordinate ranges and null handling, spoofed fields ignored, status list, bad IDs, 404 lock, and auth body checks. Suite: **88/88**. The real-browser end-to-end run still passes **13/13**, so the dashboard's own requests are accepted.
+- **Goal impact:** bad or malicious input can no longer corrupt incident data (an arbitrary status, a spoofed source, a lock on a phantom incident). *Clients'* records stay consistent and *operators* get clear messages instead of silent bad data. This is go-live item "invalid payloads return 400 with details".
 
 ### Correction (2026-10-05)
 
