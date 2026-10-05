@@ -676,6 +676,27 @@ Each finding was checked against the code before acting. All 8 were valid. Fixed
 - **Admin step remaining** (after Enterprise production is running): `.\rotate-ingest-key.ps1 -Production`, then restart both production backends.
 - **Goal impact:** tickets raised on *client* PCs through Desktop production reach the Enterprise production dashboard encrypted and authenticated, with production and development fully separated (keys, sources, databases). This is the plan's "done when" for 2.8, pending the admin pairing step.
 
+### 2.5 and 2.6 Start on boot, firewall (and backup and monitoring): scripted
+
+- **Change** (`092f0d7`): `register-production-tasks.ps1`, run once from an Administrator PowerShell 7 window, sets up the following:
+  - **Startup** task at boot +3 minutes, calling `start-production.ps1 -SkipBuild`. Desktop's task runs at +1 minute, and two PM2 commands at once can each spawn a daemon.
+  - **Daily Backup** task at 02:30 (`backup-prod.ps1`): the production database goes to `backups\production`, 14 kept. This brings task 3.1 forward.
+  - **Health Monitor** task every 5 minutes (`monitor-health.ps1`). It validates the certificate, alerts once on DOWN and once on recovery, retries alerts that failed, and warns daily before the certificate expires. Alerts go to Teams (decision D6) via `ALERT_TEAMS_WEBHOOK_URL`, and to email via `ALERT_SMTP_*`.
+  - **Firewall rule** allowing inbound TCP 5543 from **LocalSubnet only**, on every profile (decision D3). It's scoped by address, so it still holds if the network profile changes.
+  - The tasks run with S4U and highest privileges, using the MSI PowerShell only. `-DryRun` previews without admin rights, and `-Unregister` removes everything. The README is updated.
+- **Verification:**
+  - **Register script:** parses cleanly, and the dry run lists exactly the three tasks and the rule. A real run without admin rights is **refused**.
+  - **Backup:** with no database yet it exits 0; a normal backup passed integrity verification; with the database deleted while backups exist it **exits 1**.
+  - **Monitor:** tested against a real HTTPS instance with a fake Teams webhook through a full outage:
+    - up: no alert
+    - stopped: one DOWN alert, not repeated on the next run
+    - recovered while the webhook was down: state held, then Recovered delivered on the next run
+    - certificate warning sent once per day
+    - cards use the Adaptive Card format
+    - a certificate name mismatch counts as down
+- **Admin step remaining:** after merging, and after `start-production.ps1` has run once, run `.\register-production-tasks.ps1` as Administrator. Start the backup and monitor tasks and check that both show `LastTaskResult` 0, then do a reboot test. Set `ALERT_TEAMS_WEBHOOK_URL` once a webhook exists.
+- **Goal impact:** production survives reboots without anyone signing in, is reachable only from the office LAN, is backed up nightly, and *administrators* hear about an outage within 5 minutes instead of from *users*. These are the "done when" conditions for 2.5 and 2.6, met once the admin step is done.
+
 ### Correction (2026-10-05)
 
 FORD-DC01 is a **standalone Windows 11 Pro workstation in a workgroup**, not a domain controller as the original assessment assumed. There's no Active Directory, certificate authority or group policy. Decisions D1 and D4, task 5.4, task 6.6 and the first risk have been updated accordingly.
