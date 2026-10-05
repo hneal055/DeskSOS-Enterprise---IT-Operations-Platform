@@ -265,6 +265,8 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 | 2026-10-05 | **Phase 1 exit gate** | ✅ Passed (on branch) |
 | 2026-10-05 | PR #11 review: 8 CodeRabbit findings | ✅ All fixed and verified |
 | 2026-10-05 | **Phase 1 merged and running locally** | ✅ Verified (admin set up; anonymous API access refused) |
+| 2026-10-05 | 2.1 Dashboard moved from Create React App to Vite | ✅ Verified (on branch `feat/phase2-production`) |
+| 2026-10-05 | 2.2 Backend serves the built dashboard | ✅ Verified (on branch) |
 
 ### 0.3 Enterprise backups capture real data
 
@@ -565,6 +567,38 @@ Each finding was checked against the code before acting. All 8 were valid. Fixed
   - `/health` returns ok.
   - **An anonymous `GET /api/incidents` returns 401.** Before Phase 1 it returned every incident.
 - **Goal impact:** Phase 1's protection is now live on the machine, not just on a branch. Next for *administrators*: add the team under **Users**. Next in the plan: Phase 2 (production setup).
+
+### 2.1 Dashboard moved from Create React App to Vite
+
+- **Change** (`d40bf78`, worktree `C:\Projects\DESKSOS-phase2`):
+  - Vite 6 and `@vitejs/plugin-react` replace `react-scripts`, which is deprecated.
+  - **Tailwind 3.4 is compiled at build time** instead of by the `cdn.tailwindcss.com` script in the browser. Its directives go after the app's CSS to keep the precedence the CDN had.
+  - The dev server stays on port 3000 with the same proxy to `:5100`, and the build still goes to `build/`, so `start-dev.ps1`, `stop-dev.ps1` and CI need no workflow changes.
+  - `index.html` moved to `client/`, and the JSX files were renamed `.jsx`.
+  - CI: the CRA `CI=false` workaround is gone, and the client job now **fails on high or critical production-dependency findings**.
+  - `stop-dev.ps1 -ClearCache` targets Vite's cache. README updated.
+- **Verification:**
+  - **Visual parity with the CRA build:** a script captured 3 screens from each build and compared **252 computed style values: 251 identical**. The one difference is the same gradient written two ways (`0%` vs `0px`). Screenshots match, with no console errors in either build.
+  - Browser flows on the Vite build: 15/15 and 14/14.
+  - The dev server serves the page and forwards `/health` and `/api` to the backend.
+  - The build has **no inline scripts**, which the strict security policy requires.
+  - **Client production audit: 80 findings to 0.**
+- **Remaining (build tools only):** 5 high findings, all one advisory in `braces` (deeply nested glob patterns), pulled in by Tailwind 3's build tooling. The only patterns it processes are the two in `tailwind.config.js`, and nothing reaches the browser. The fix is Tailwind 4, a major upgrade with class renames, deferred to avoid risking the visual parity.
+- **Goal impact:** *users* get the same dashboard built with supported tools, with styles compiled once instead of in every browser, and the shipped dependencies have no known vulnerabilities. This unblocks 2.2 and moves forward go-live item "production audit 0 high or critical".
+
+### 2.2 Backend serves the built dashboard
+
+- **Change** (`4a1405d`):
+  - When `SERVE_CLIENT` is on (the default in production), the backend serves `client/build`. Hashed `/assets` files are cached for a year and `index.html` is never cached.
+  - Client-side routes fall back to `index.html`, but `/api`, `/socket.io` and `/health` are excluded, so **unknown API paths still return a JSON 404**. A missing build is logged rather than crashing the server.
+  - API information moved to `GET /api` as well.
+  - The security policy keeps helmet's strict defaults (`script-src 'self'`, no inline scripts). **`upgrade-insecure-requests` is only sent once HTTPS is on**: browsers would otherwise fetch the server's own files over HTTPS and break a plain-HTTP deployment.
+- **Verification:**
+  - 7 new tests: `/` serves `index.html` uncached; assets get the immutable year-long cache; a missing asset returns 404, not the page; root static files are served; deep links return the page; API, health and auth unchanged (unknown API path gives JSON 404, incidents give 401); the policy forbids inline scripts and has no upgrade directive.
+  - The exit gate caught the new open `GET /api` until it was added to the allowlist with its reason. Suite: **157/157**.
+  - **Real browser against the backend serving the Vite build on one port, no proxy:** **17/17**, including **no security-policy violations** and **no unexpected console errors**. User management passes 14/14.
+  - The violation check was proven able to fail: temporarily restricting `style-src` to `'self'` made it report the blocked Google Fonts stylesheet.
+- **Goal impact:** production can run as **one server on one port**, with no development server, no CDN and a strict security policy. This is the plan's "done when" for task 2.2, and the base for HTTPS (2.3) and the production start script (2.4).
 
 ### Correction (2026-10-05)
 
