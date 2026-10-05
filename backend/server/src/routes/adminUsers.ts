@@ -5,6 +5,7 @@ import {
 } from "../users";
 import { validate } from "../middleware/validate";
 import { createUserBody, updateUserBody, userIdParams } from "../validation";
+import { disconnectUser } from "../services/socket";
 
 // Mounted at /api/admin/users behind requireAuth + requireRole("admin").
 const router = Router();
@@ -51,7 +52,11 @@ router.patch("/:id", validate({ params: userIdParams, body: updateUserBody }), (
     return res.status(400).json({ error: "At least one active admin is required" });
   }
 
-  res.json(adminView(updateUser(id, req.body)));
+  const updated = updateUser(id, req.body);
+  // A role change or deactivation revoked the user's tokens; close their open
+  // live connections too, so they stop receiving events right away
+  if (updated.tokenVersion !== target.tokenVersion) disconnectUser(id);
+  res.json(adminView(updated));
 });
 
 // POST /api/admin/users/:id/reset-password
@@ -59,7 +64,13 @@ router.patch("/:id", validate({ params: userIdParams, body: updateUserBody }), (
 router.post("/:id/reset-password", validate({ params: userIdParams }), (req: Request, res: Response) => {
   const id = Number(req.params.id);
   if (!getUser(id)) return res.status(404).json({ error: "User not found" });
+  // Resetting your own password here would end your session before you could
+  // see the new one; use change-password for your own account instead
+  if (id === req.user!.id) {
+    return res.status(400).json({ error: "Use Change password for your own account" });
+  }
   const temporaryPassword = resetPassword(id);
+  disconnectUser(id);
   res.json({ user: adminView(getUser(id)!), temporaryPassword });
 });
 

@@ -22,44 +22,71 @@ export default function UsersAdmin({ currentUser }) {
   const [copied, setCopied] = useState(false);
   const [form, setForm] = useState({ name: '', email: '', role: 'operator' });
   const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState({}); // user id -> action in progress
+
+  const NETWORK_ERROR = 'Could not reach the server. Check your connection and try again.';
 
   const load = useCallback(async () => {
-    const res = await apiFetch('/api/admin/users');
-    if (res.ok) setUsers(await res.json());
-    else setError(await readError(res));
+    try {
+      const res = await apiFetch('/api/admin/users');
+      if (res.ok) setUsers(await res.json());
+      else setError(await readError(res));
+    } catch {
+      setError(NETWORK_ERROR);
+    }
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
   const showSecret = (who, password) => { setCopied(false); setSecret({ who, password }); };
 
+  // Runs one action per user at a time, so double clicks can't overlap
+  const withPending = async (u, action) => {
+    if (pending[u.id]) return;
+    setPending((p) => ({ ...p, [u.id]: true }));
+    try {
+      await action();
+    } catch {
+      setError(NETWORK_ERROR);
+    } finally {
+      setPending((p) => { const next = { ...p }; delete next[u.id]; return next; });
+    }
+  };
+
   const addUser = async (e) => {
     e.preventDefault();
     setError('');
     setBusy(true);
-    const res = await apiFetch('/api/admin/users', { method: 'POST', body: JSON.stringify(form) });
-    setBusy(false);
-    if (!res.ok) return setError(await readError(res));
-    const { user, temporaryPassword } = await res.json();
-    showSecret(user, temporaryPassword);
-    setForm({ name: '', email: '', role: 'operator' });
-    load();
+    try {
+      const res = await apiFetch('/api/admin/users', { method: 'POST', body: JSON.stringify(form) });
+      if (!res.ok) return setError(await readError(res));
+      const { user, temporaryPassword } = await res.json();
+      showSecret(user, temporaryPassword);
+      setForm({ name: '', email: '', role: 'operator' });
+      load();
+    } catch {
+      setError(NETWORK_ERROR);
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const update = async (u, changes) => {
+  const update = (u, changes) => withPending(u, async () => {
     setError('');
     const res = await apiFetch(`/api/admin/users/${u.id}`, { method: 'PATCH', body: JSON.stringify(changes) });
     if (!res.ok) setError(await readError(res));
-    load();
-  };
+    await load();
+  });
 
-  const reset = async (u) => {
+  const reset = (u) => {
     if (!window.confirm(`Reset the password for ${u.name}? They will be signed out everywhere.`)) return;
-    setError('');
-    const res = await apiFetch(`/api/admin/users/${u.id}/reset-password`, { method: 'POST' });
-    if (!res.ok) return setError(await readError(res));
-    showSecret(u, (await res.json()).temporaryPassword);
-    load();
+    return withPending(u, async () => {
+      setError('');
+      const res = await apiFetch(`/api/admin/users/${u.id}/reset-password`, { method: 'POST' });
+      if (!res.ok) return setError(await readError(res));
+      showSecret(u, (await res.json()).temporaryPassword);
+      await load();
+    });
   };
 
   const copy = async () => {
@@ -140,7 +167,7 @@ export default function UsersAdmin({ currentUser }) {
                   <td className="py-2 pr-3 text-slate-200">{u.name}{isSelf && <span className="text-slate-500"> (you)</span>}</td>
                   <td className="py-2 pr-3 text-slate-400">{u.email}</td>
                   <td className="py-2 pr-3">
-                    <select aria-label={`Role for ${u.email}`} className={`${input} py-1`} value={u.role} disabled={isSelf}
+                    <select aria-label={`Role for ${u.email}`} className={`${input} py-1`} value={u.role} disabled={isSelf || !!pending[u.id]}
                       onChange={(e) => update(u, { role: e.target.value })}>
                       {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
                     </select>
@@ -152,16 +179,20 @@ export default function UsersAdmin({ currentUser }) {
                   </td>
                   <td className="py-2 pr-3 text-slate-400">{u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : 'Never'}</td>
                   <td className="py-2 space-x-2 whitespace-nowrap">
-                    {!isSelf && (
-                      <button onClick={() => update(u, { active: !u.active })}
-                        className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold px-2.5 py-1 rounded">
-                        {u.active ? 'Deactivate' : 'Reactivate'}
-                      </button>
+                    {isSelf ? (
+                      <span className="text-xs text-slate-500">Use “Change password” in the header</span>
+                    ) : (
+                      <>
+                        <button onClick={() => update(u, { active: !u.active })} disabled={!!pending[u.id]}
+                          className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold px-2.5 py-1 rounded disabled:opacity-50">
+                          {u.active ? 'Deactivate' : 'Reactivate'}
+                        </button>
+                        <button onClick={() => reset(u)} disabled={!!pending[u.id]}
+                          className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold px-2.5 py-1 rounded disabled:opacity-50">
+                          {pending[u.id] ? 'Working…' : 'Reset password'}
+                        </button>
+                      </>
                     )}
-                    <button onClick={() => reset(u)}
-                      className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold px-2.5 py-1 rounded">
-                      Reset password
-                    </button>
                   </td>
                 </tr>
               );

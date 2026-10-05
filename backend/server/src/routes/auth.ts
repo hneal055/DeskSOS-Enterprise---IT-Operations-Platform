@@ -3,6 +3,7 @@ import { authenticate, checkPasswordStrength, setPassword, verifyPasswordFor, Us
 import { requireAuth, signToken } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { loginBody, changePasswordBody } from "../validation";
+import { disconnectUser } from "../services/socket";
 
 const router = Router();
 
@@ -48,6 +49,10 @@ router.post(
       return res.status(400).json({ error: "New password must be different from the current one" });
     }
     const user = setPassword(req.user!.id, newPassword);
+    // Close this user's open live connections: other tabs or devices still
+    // hold the old token. Done after the response so this tab can store its
+    // new token first; it then reconnects with it.
+    res.on("finish", () => disconnectUser(user.id));
     res.json({ token: signToken(user), user: publicUser(user) });
   }
 );

@@ -64,10 +64,6 @@ router.patch('/:id', canEdit, validate({ params: incidentIdParams, body: updateI
       return res.status(404).json({ error: 'Incident target not found in stream' });
     }
 
-    if (status === 'Resolved') {
-      // Release lock automatically upon resolution
-      delete activeLocks[id];
-    }
     const incident = inTransaction(() => {
       const updated = updateIncidentStatus(id, status);
       // Only record real changes, not a status set to what it already was
@@ -76,6 +72,12 @@ router.patch('/:id', canEdit, validate({ params: incidentIdParams, body: updateI
       }
       return updated;
     });
+
+    // Release the lock on resolution, only once the change has committed
+    // (a failed update must leave the incident locked as it was)
+    if (status === 'Resolved') {
+      delete activeLocks[id];
+    }
 
     req.app.get('io')?.emit('incident:updated', incident);
     res.json(incident);

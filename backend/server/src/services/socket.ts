@@ -10,6 +10,20 @@ interface ConnectedUser {
 
 const connectedUsers: Map<string, ConnectedUser> = new Map();
 
+// Every open socket per user id, so revoking a session (deactivation, role
+// change, password change or reset) can close that user's live connections.
+// The handshake checks the token only once; without this an open socket
+// would keep receiving events after the user's access was revoked.
+const socketsByUser: Map<number, Set<Socket>> = new Map();
+
+export function disconnectUser(userId: number): number {
+  const sockets = socketsByUser.get(userId);
+  if (!sockets) return 0;
+  const count = sockets.size;
+  for (const s of Array.from(sockets)) s.disconnect(true);
+  return count;
+}
+
 function presence() {
   return {
     onlineUsers: Array.from(connectedUsers.values()).map((u) => ({ id: u.id, name: u.name })),
@@ -30,6 +44,9 @@ export const initializeSocket = (io: SocketIOServer) => {
   io.on("connection", (socket: Socket) => {
     const me = socket.data.user as User;
     console.log(`User connected: ${me.email} (${socket.id})`);
+
+    if (!socketsByUser.has(me.id)) socketsByUser.set(me.id, new Set());
+    socketsByUser.get(me.id)!.add(socket);
 
     // Presence uses the signed-in identity, never what the client claims
     socket.on("user:join", () => {
@@ -66,6 +83,10 @@ export const initializeSocket = (io: SocketIOServer) => {
     });
 
     socket.on("disconnect", () => {
+      const mine = socketsByUser.get(me.id);
+      mine?.delete(socket);
+      if (mine && mine.size === 0) socketsByUser.delete(me.id);
+
       const entry = connectedUsers.get(String(me.id));
       if (entry && entry.socket.id === socket.id) {
         connectedUsers.delete(String(me.id));

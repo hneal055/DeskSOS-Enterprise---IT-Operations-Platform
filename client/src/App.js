@@ -5,7 +5,7 @@ import UsersAdmin from './UsersAdmin';
 
 const API_BASE = ''; // Leverages the package.json proxy to bypass CORS
 
-export default function App({ user, onSignOut, onSessionEnded }) {
+export default function App({ user, onSignOut, onSessionEnded, onChangePassword }) {
   // Viewers get a read-only console; the server enforces the same rule
   const canEdit = user.role === 'admin' || user.role === 'operator';
   const isAdmin = user.role === 'admin';
@@ -124,13 +124,23 @@ export default function App({ user, onSignOut, onSessionEnded }) {
 
   // Real-time WebSocket Synchronization
   useEffect(() => {
-    // Same-origin connection, authenticated with the session token
-    const socket = io({ auth: { token: getToken() } });
+    // Same-origin connection. auth is a function so every (re)connect sends the
+    // current token: after a password change the server closes this socket
+    // and it reconnects with the new token.
+    const socket = io({ auth: (cb) => cb({ token: getToken() }) });
 
-    socket.on('connect_error', (err) => {
-      if (err.message === 'Authentication required') {
-        onSessionEnded('Your session has ended. Please sign in again.');
-      }
+    socket.on('connect_error', async (err) => {
+      if (err.message !== 'Authentication required') return;
+      // Check whether the session is really over (apiFetch signs out on 401)
+      // or the socket just raced ahead of a token refresh; then retry.
+      const res = await apiFetch(`${API_BASE}/api/auth/me`);
+      if (res.ok) setTimeout(() => socket.connect(), 1000);
+    });
+
+    // The server closed the connection (revoked session or password change):
+    // try again; a revoked session ends via the check above
+    socket.on('disconnect', (reason) => {
+      if (reason === 'io server disconnect') socket.connect();
     });
 
     socket.on('incident:locked', ({ incidentId, lockedBy }) => {
@@ -316,6 +326,12 @@ export default function App({ user, onSignOut, onSessionEnded }) {
             <span className="text-slate-300" data-testid="signed-in-user">
               {user.name} <span className="text-slate-500 capitalize">({user.role})</span>
             </span>
+            <button
+              onClick={onChangePassword}
+              className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold px-3 py-1.5 rounded transition"
+            >
+              Change password
+            </button>
             <button
               onClick={onSignOut}
               className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold px-3 py-1.5 rounded transition"

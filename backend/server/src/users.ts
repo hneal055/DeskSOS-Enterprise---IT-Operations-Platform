@@ -73,14 +73,26 @@ export function hashPassword(password: string): string {
   return ["scrypt", SCRYPT.N, SCRYPT.r, SCRYPT.p, salt.toString("base64"), hash.toString("base64")].join("$");
 }
 
+// A stored hash is only trusted within these bounds; anything else (a corrupt
+// row, a bad manual edit) counts as a failed check rather than an error
+const isPowerOfTwo = (n: number) => Number.isInteger(n) && n > 1 && (n & (n - 1)) === 0;
+
 export function verifyPassword(password: string, stored: string): boolean {
-  const [algo, n, r, p, saltB64, hashB64] = stored.split("$");
+  const [algo, nRaw, rRaw, pRaw, saltB64, hashB64] = String(stored).split("$");
   if (algo !== "scrypt" || !saltB64 || !hashB64) return false;
+  const N = Number(nRaw), r = Number(rRaw), p = Number(pRaw);
+  if (!isPowerOfTwo(N) || N < 2 ** 14 || N > 2 ** 17) return false;
+  if (!Number.isInteger(r) || r < 1 || r > 16 || !Number.isInteger(p) || p < 1 || p > 4) return false;
   const expected = Buffer.from(hashB64, "base64");
-  const actual = crypto.scryptSync(password, Buffer.from(saltB64, "base64"), expected.length, {
-    N: Number(n), r: Number(r), p: Number(p), maxmem: SCRYPT_MAXMEM,
-  });
-  return crypto.timingSafeEqual(actual, expected);
+  if (expected.length < 32 || expected.length > 128) return false;
+  try {
+    const actual = crypto.scryptSync(password, Buffer.from(saltB64, "base64"), expected.length, {
+      N, r, p, maxmem: SCRYPT_MAXMEM,
+    });
+    return crypto.timingSafeEqual(actual, expected);
+  } catch {
+    return false;
+  }
 }
 
 // Used when the email doesn't exist, so a failed login takes about as long

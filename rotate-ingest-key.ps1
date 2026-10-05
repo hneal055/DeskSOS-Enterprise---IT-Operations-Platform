@@ -36,24 +36,48 @@ foreach ($f in $EnterpriseEnv, $DesktopEnv) {
     if ((Get-Item $f).IsReadOnly) { throw "Read-only: $f" }
 }
 
+# RandomNumberGenerator.Create().GetBytes works in both Windows PowerShell 5.1
+# (.NET Framework) and PowerShell 7; the static Fill() is 7-only.
 $bytes = New-Object byte[] 48
-[Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+$rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
 $key = [Convert]::ToBase64String($bytes).Replace('+', '-').Replace('/', '_').TrimEnd('=')
 
-$entLines = Set-EnvValue (Get-Content $EnterpriseEnv) 'INGEST_API_KEY' $key
-$deskLines = Set-EnvValue (Get-Content $DesktopEnv) 'ENTERPRISE_INGEST_KEY' $key
-Set-Content $EnterpriseEnv $entLines
-Set-Content $DesktopEnv $deskLines
+# Keep the originals byte-for-byte so a failure part-way can be undone
+$entOriginal = [IO.File]::ReadAllBytes($EnterpriseEnv)
+$deskOriginal = [IO.File]::ReadAllBytes($DesktopEnv)
 
-# Verify both files now hold the same, new key
 $read = {
     param($file, $name)
     $m = Select-String $file -Pattern "^\s*$name=(.*)$" | Select-Object -First 1
     if ($m) { $m.Matches[0].Groups[1].Value.Trim() }
 }
-$a = & $read $EnterpriseEnv 'INGEST_API_KEY'
-$b = & $read $DesktopEnv 'ENTERPRISE_INGEST_KEY'
-if ($a -ne $key -or $b -ne $key) { throw "Verification failed: the two files don't hold the new key" }
+
+$written = @()
+try {
+    Set-Content $EnterpriseEnv (Set-EnvValue (Get-Content $EnterpriseEnv) 'INGEST_API_KEY' $key)
+    $written += 'enterprise'
+    Set-Content $DesktopEnv (Set-EnvValue (Get-Content $DesktopEnv) 'ENTERPRISE_INGEST_KEY' $key)
+    $written += 'desktop'
+    # Verify both files now hold the same, new key
+    $a = & $read $EnterpriseEnv 'INGEST_API_KEY'
+    $b = & $read $DesktopEnv 'ENTERPRISE_INGEST_KEY'
+    if ($a -ne $key -or $b -ne $key) { throw "the two files don't hold the new key" }
+} catch {
+    $reason = $_.Exception.Message
+    # Put back every file this run changed, so the keys can't end up mismatched
+    $notRestored = @()
+    if ($written -contains 'enterprise') {
+        try { [IO.File]::WriteAllBytes($EnterpriseEnv, $entOriginal) } catch { $notRestored += $EnterpriseEnv }
+    }
+    if ($written -contains 'desktop') {
+        try { [IO.File]::WriteAllBytes($DesktopEnv, $deskOriginal) } catch { $notRestored += $DesktopEnv }
+    }
+    if ($notRestored) {
+        throw "Rotation failed ($reason) and these files could NOT be restored; fix them by hand: $($notRestored -join ', ')"
+    }
+    throw "Rotation failed and both files were left as they were: $reason"
+}
 
 Write-Host "Ingest key rotated (length $($key.Length)); both .env files updated and verified." -ForegroundColor Green
 Write-Host "Now restart both backends, from an Administrator window:" -ForegroundColor Yellow

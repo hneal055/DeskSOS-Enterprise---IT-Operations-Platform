@@ -79,7 +79,9 @@ export function LoginScreen({ onSignedIn, notice }) {
   );
 }
 
-export function ChangePasswordScreen({ user, onChanged, onSignOut }) {
+// Forced on first sign-in (no onCancel), or opened voluntarily from the
+// dashboard header (with onCancel).
+export function ChangePasswordScreen({ user, onChanged, onSignOut, onCancel }) {
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -103,8 +105,10 @@ export function ChangePasswordScreen({ user, onChanged, onSignOut }) {
 
   return (
     <Shell
-      title="Choose a new password"
-      subtitle={`Signed in as ${user.email}. You need to set your own password before continuing.`}
+      title={onCancel ? 'Change your password' : 'Choose a new password'}
+      subtitle={onCancel
+        ? `Signed in as ${user.email}. Your other sessions will be signed out.`
+        : `Signed in as ${user.email}. You need to set your own password before continuing.`}
     >
       <form onSubmit={submit} className="space-y-4">
         <Field label="Current password" type="password" autoComplete="current-password" value={current}
@@ -117,9 +121,9 @@ export function ChangePasswordScreen({ user, onChanged, onSignOut }) {
         <button type="submit" disabled={busy} className={buttonClass}>
           {busy ? 'Saving…' : 'Set password'}
         </button>
-        <button type="button" onClick={onSignOut}
+        <button type="button" onClick={onCancel || onSignOut}
           className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold py-2 rounded transition">
-          Sign out
+          {onCancel ? 'Cancel' : 'Sign out'}
         </button>
       </form>
     </Shell>

@@ -8,6 +8,7 @@ export default function Root() {
   const [user, setUser] = useState(null);
   const [checking, setChecking] = useState(true);
   const [notice, setNotice] = useState('');
+  const [changingPassword, setChangingPassword] = useState(false);
 
   const endSession = useCallback((message) => {
     clearToken();
@@ -40,5 +41,17 @@ export default function Root() {
   if (user.mustChangePassword) {
     return <ChangePasswordScreen user={user} onChanged={setUser} onSignOut={signOut} />;
   }
-  return <App user={user} onSignOut={signOut} onSessionEnded={endSession} />;
+  if (changingPassword) {
+    return (
+      <ChangePasswordScreen
+        user={user}
+        onChanged={(u) => { setUser(u); setChangingPassword(false); }}
+        onCancel={() => setChangingPassword(false)}
+      />
+    );
+  }
+  return (
+    <App user={user} onSignOut={signOut} onSessionEnded={endSession}
+      onChangePassword={() => setChangingPassword(true)} />
+  );
 }
