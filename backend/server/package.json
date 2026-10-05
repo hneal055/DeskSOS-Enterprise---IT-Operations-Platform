@@ -24,7 +24,8 @@
     "pg": "^8.11.3",
     "redis": "^4.6.10",
     "socket.io": "^4.5.4",
-    "winston": "^3.11.0"
+    "winston": "^3.11.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",

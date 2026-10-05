@@ -45,6 +45,27 @@ export const config = {
   // Shared secret for machine-to-machine ingest (DeskSOS Desktop backend).
   // Ingest is disabled while unset.
   ingestApiKey: process.env.INGEST_API_KEY || "",
+  // Browser origins allowed to call the API and open the socket
+  // (comma-separated). Defaults to the local dashboard dev servers.
+  corsOrigins: (process.env.CORS_ORIGINS || "http://localhost:3000,http://localhost:3001")
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean),
+  // Requests per IP per 15 minutes. The dashboard polls every 15 s (60 per
+  // window per open tab), so the general limit leaves room for several tabs.
+  rateLimit: {
+    windowMs: 15 * 60 * 1000,
+    api: positiveInt(process.env.RATE_LIMIT_API, 600),
+    // Failed sign-ins per IP + email; successful ones don't count
+    login: positiveInt(process.env.RATE_LIMIT_LOGIN, 10),
+    // The Desktop bridge can send a backlog after an outage (20 per 15 s)
+    ingest: positiveInt(process.env.RATE_LIMIT_INGEST, 2000),
+  },
 };
+
+function positiveInt(raw: string | undefined, fallback: number): number {
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : fallback;
+}
 
 export default config;

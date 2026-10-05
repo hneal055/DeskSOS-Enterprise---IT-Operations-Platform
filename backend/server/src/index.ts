@@ -13,6 +13,7 @@ import { initializeSocket } from "./services/socket";
 import { pingDatabase } from "./db";
 import { ensureInitialAdmin } from "./users";
 import { requireAuth } from "./middleware/auth";
+import { securityHeaders, apiLimiter, loginLimiter, ingestLimiter } from "./middleware/security";
 
 // Initialize Express
 const app: Express = express();
@@ -20,27 +21,31 @@ const app: Express = express();
 // Create HTTP server
 const httpServer = createServer(app);
 
-// Initialize Socket.IO with corrected CORS
+// Socket.IO, restricted to the configured browser origins
 const io = new SocketIOServer(httpServer, {
   cors: {
-    origin: ["http://localhost:3000", "http://localhost:3001"],
+    origin: config.corsOrigins,
     methods: ["GET", "POST", "PATCH", "PUT", "DELETE"],
     credentials: true
   },
 });
 app.set('io', io);
-// Global CORS middleware for Express
+
+// Security headers first, so they're on every response (including errors)
+app.use(securityHeaders);
+
 app.use(
   cors({
-    origin: ["http://localhost:3000", "http://localhost:3001"],
+    origin: config.corsOrigins,
     methods: ["GET", "POST", "PATCH", "PUT", "DELETE"],
     credentials: true,
   })
 );
 
-// Body parsers
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Body parsers with a size cap. The largest legitimate payload is an ingested
+// ticket (description up to 20,000 characters), well under 100 KB.
+app.use(express.json({ limit: "100kb" }));
+app.use(express.urlencoded({ extended: true, limit: "100kb" }));
 
 // Request logging middleware
 app.use((req, res, next) => {
@@ -52,6 +57,12 @@ app.use((req, res, next) => {
 // Sign-in is enforced where each router is mounted, so no route under these
 // prefixes can be left open by accident. Exceptions: /api/auth (login itself;
 // its own routes opt in) and /api/ingest (machine-to-machine, X-API-Key).
+// Rate limits: the stricter sign-in limit runs before the general one.
+// Ingest has its own allowance so a bridge backlog isn't throttled by UI traffic.
+app.use("/api/auth/login", loginLimiter);
+app.use("/api/ingest", ingestLimiter);
+app.use("/api", apiLimiter); // skips /api/ingest itself
+
 app.use("/api/auth", authRoutes);
 app.use("/api/dashboard", requireAuth(), dashboardRoutes);
 app.use("/api/chat", requireAuth(), chatRoutes);
@@ -105,10 +116,19 @@ app.use(
     res: express.Response,
     next: express.NextFunction
   ) => {
+    const status = Number(err.status) || 500;
+    // Body parser errors are the client's fault; describe them plainly
+    if (err.type === "entity.parse.failed") {
+      return res.status(400).json({ error: "Request body is not valid JSON", status: 400 });
+    }
+    if (err.type === "entity.too.large") {
+      return res.status(413).json({ error: "Request body is too large", status: 413 });
+    }
     console.error("Error:", err);
-    res.status(err.status || 500).json({
-      error: err.message || "Internal Server Error",
-      status: err.status || 500,
+    // Never send internal error details to the client
+    res.status(status).json({
+      error: status >= 500 ? "Internal Server Error" : err.message || "Request failed",
+      status,
     });
   }
 );
