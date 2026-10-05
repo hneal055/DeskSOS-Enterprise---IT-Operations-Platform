@@ -254,6 +254,8 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 | 2026-10-05 | 0.6 Desktop PRs #1 and #2 merged; `main` current and CI green | ✅ Verified |
 | 2026-10-05 | 1.2 Strong `JWT_SECRET` required; no fallback | ✅ Verified (on branch `feat/phase1-secure-enterprise`) |
 | 2026-10-05 | 1.1 Real accounts replace the "any password works" login | ✅ Verified (on branch) |
+| 2026-10-05 | 1.3 Every API route requires sign-in, with role checks | ✅ Verified (on branch) |
+| 2026-10-05 | 1.4 Live socket requires sign-in; no identity spoofing | ✅ Verified (on branch) |
 
 ### 0.3 Enterprise backups capture real data
 
@@ -381,6 +383,35 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 - **Goal impact:** this closes the most serious gap from the assessment. Before, **anyone could get an admin token with any password**. *Users* now have individual accounts with roles, which is the foundation for tasks 1.3–1.9: protected routes and socket, sign-in screen, user management and audit trail. It moves forward the go-live items for authentication and "default and first-run passwords changed".
 - **Administrator note:** the first-run password appears in the startup output, which PM2 also writes to its log file. Because it must be changed at first sign-in, the logged value stops working right away. Sign in and change it promptly after the first deployment.
 - **Not yet in effect:** incident, dashboard, chat and user routes are still open. Task 1.3 puts them behind sign-in.
+
+### 1.3 Every API route requires sign-in, with role checks
+
+- **Change** (`d0bd89e`):
+  - `requireAuth()` is applied **where routers are mounted** (`/api/incidents`, `/api/dashboard`, `/api/chat`, `/api/user`), so a route added under those prefixes later can't be left open by accident. `/health`, `/api/auth/login` and `/api/ingest` (API key) stay open by design.
+  - Creating, updating and locking incidents require the **operator or admin** role. Viewers can read only.
+  - Incident locks are now taken in the **signed-in user's name**. Before, the client sent any `operatorName` it liked.
+  - `/api/user/me` returns the real user instead of sample data.
+- **Verification:**
+  - An access-control test calls **all 11 protected routes** with no token and with a forged token: every one returns 401.
+  - A pending password change limits the account to `/me` and change-password.
+  - Open routes stay open.
+  - Viewers get 403 on create, update and lock; operators and admins succeed.
+  - Lock names can't be spoofed.
+  - **Mutation check:** removing `requireAuth()` from the dashboard mount made 4 access tests fail. Restored, all pass.
+- **Goal impact:** the API no longer accepts anonymous reads or writes. Only signed-in *users* see incidents, and only operators and admins change them. This is the core of the Phase 1 exit gate.
+
+### 1.4 Live socket requires sign-in; no identity spoofing
+
+- **Change** (`d0bd89e`):
+  - Socket.IO connections must present a valid token at handshake (`auth: { token }`). Forged or expired tokens, deactivated users and accounts with a pending password change are refused.
+  - Presence (`user:join`), chat messages and typing events now use the **signed-in identity**. Before, the client supplied its own user ID and name.
+  - Viewers can't send chat messages.
+- **Verification:**
+  - 5 live socket tests on a real server: no token refused, forged token refused, pending password change refused, valid token receives `incident:created` events, and presence shows the real name even when the client sends a spoofed one.
+  - **Mutation check:** letting the socket accept connections without a token made 2 tests fail. Restored, all pass.
+  - Full suite: **65/65**.
+- **Goal impact:** the live incident feed, which shows *clients'* ticket details, is no longer readable by anyone who can open a connection. Nobody can impersonate a colleague in presence or chat.
+- **Note:** the dashboard can't sign in yet, so on this branch it can no longer load data. Task 1.5 adds the sign-in screen. This is why the work is on `feat/phase1-secure-enterprise` (worktree `C:\Projects\DESKSOS-phase1`), while `C:\Projects\DESKSOS` stays on `main` and keeps working.
 
 ### Correction (2026-10-05)
 
