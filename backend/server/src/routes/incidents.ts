@@ -3,6 +3,7 @@ import { listIncidents, createIncident, getIncident, updateIncidentStatus, Sever
 import { requireRole } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { createIncidentBody, updateIncidentBody, incidentIdParams } from '../validation';
+import { actorFromUser, inTransaction, listEvents, recordEvent } from '../audit';
 
 const router = Router();
 
@@ -27,16 +28,22 @@ router.get('/', (req: Request, res: Response) => {
 router.post('/', canEdit, validate({ body: createIncidentBody }), (req: Request, res: Response) => {
   try {
     const { title, description, category, severity, location, assignedTo, status } = req.body;
-    const newIncident = createIncident({
-      title,
-      description,
-      category: category || 'Infrastructure',
-      severity: (severity as Severity) || 'MEDIUM',
-      status: status || 'Open',
-      latitude: location?.latitude,
-      longitude: location?.longitude,
-      assignedTo: assignedTo || 'Unassigned',
-      source: 'enterprise-ui',
+    const newIncident = inTransaction(() => {
+      const created = createIncident({
+        title,
+        description,
+        category: category || 'Infrastructure',
+        severity: (severity as Severity) || 'MEDIUM',
+        status: status || 'Open',
+        latitude: location?.latitude,
+        longitude: location?.longitude,
+        assignedTo: assignedTo || 'Unassigned',
+        source: 'enterprise-ui',
+      });
+      recordEvent(created.id, 'created', actorFromUser(req.user!), {
+        severity: created.severity, status: created.status,
+      });
+      return created;
     });
 
     req.app.get('io')?.emit('incident:created', newIncident);
@@ -52,7 +59,8 @@ router.patch('/:id', canEdit, validate({ params: incidentIdParams, body: updateI
     const id = Number(req.params.id);
     const { status } = req.body;
 
-    if (!getIncident(id)) {
+    const before = getIncident(id);
+    if (!before) {
       return res.status(404).json({ error: 'Incident target not found in stream' });
     }
 
@@ -60,13 +68,29 @@ router.patch('/:id', canEdit, validate({ params: incidentIdParams, body: updateI
       // Release lock automatically upon resolution
       delete activeLocks[id];
     }
-    const incident = updateIncidentStatus(id, status);
+    const incident = inTransaction(() => {
+      const updated = updateIncidentStatus(id, status);
+      // Only record real changes, not a status set to what it already was
+      if (before.status !== status) {
+        recordEvent(id, 'status_changed', actorFromUser(req.user!), { from: before.status, to: status });
+      }
+      return updated;
+    });
 
     req.app.get('io')?.emit('incident:updated', incident);
     res.json(incident);
   } catch (error) {
     res.status(500).json({ error: 'Failed to update incident state' });
   }
+});
+
+// GET /api/incidents/:id/history (any signed-in role)
+router.get('/:id/history', validate({ params: incidentIdParams }), (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  if (!getIncident(id)) {
+    return res.status(404).json({ error: 'Incident target not found in stream' });
+  }
+  res.json(listEvents(id));
 });
 
 // POST /api/incidents/:id/lock
@@ -84,6 +108,11 @@ router.post('/:id/lock', canEdit, validate({ params: incidentIdParams }), (req: 
       return res.status(409).json({ error: `Incident is currently locked by ${activeLocks[id]}` });
     }
 
+    // Record a lock when the holder changes, not every time the same person
+    // re-selects an incident they already hold
+    if (activeLocks[id] !== operatorName) {
+      recordEvent(id, 'locked', actorFromUser(req.user!));
+    }
     activeLocks[id] = operatorName;
 
     req.app.get('io')?.emit('incident:locked', { incidentId: id, lockedBy: activeLocks[id] });

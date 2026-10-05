@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import { requireApiKey } from "../middleware/apiKey";
 import { createIncident, findByExternalId, SEVERITIES, Severity } from "../db";
+import { inTransaction, integrationActor, recordEvent } from "../audit";
 
 const router = Router();
 
@@ -38,17 +39,23 @@ router.post("/incidents", requireApiKey, (req: Request, res: Response) => {
 
   const lat = Number(location?.latitude);
   const lon = Number(location?.longitude);
-  const incident = createIncident({
-    title: title.trim().slice(0, MAX_TITLE),
-    description: description.trim().slice(0, MAX_DESCRIPTION),
-    severity: (severity as Severity) ?? "MEDIUM",
-    category: optionalString(category, MAX_SHORT) ?? "Desktop Support",
-    requester: optionalString(requester, MAX_SHORT) ?? null,
-    assignedTo: optionalString(assignedTo, MAX_SHORT),
-    latitude: Number.isFinite(lat) ? lat : undefined,
-    longitude: Number.isFinite(lon) ? lon : undefined,
-    source: src,
-    externalId: extId,
+  const incident = inTransaction(() => {
+    const created = createIncident({
+      title: title.trim().slice(0, MAX_TITLE),
+      description: description.trim().slice(0, MAX_DESCRIPTION),
+      severity: (severity as Severity) ?? "MEDIUM",
+      category: optionalString(category, MAX_SHORT) ?? "Desktop Support",
+      requester: optionalString(requester, MAX_SHORT) ?? null,
+      assignedTo: optionalString(assignedTo, MAX_SHORT),
+      latitude: Number.isFinite(lat) ? lat : undefined,
+      longitude: Number.isFinite(lon) ? lon : undefined,
+      source: src,
+      externalId: extId,
+    });
+    recordEvent(created.id, "ingested", integrationActor(src), {
+      externalId: extId, requester: created.requester, severity: created.severity,
+    });
+    return created;
   });
 
   req.app.get("io")?.emit("incident:created", incident);

@@ -12,6 +12,7 @@ const PROTECTED: Array<[string, string]> = [
   ["post", "/api/incidents"],
   ["patch", "/api/incidents/1"],
   ["post", "/api/incidents/1/lock"],
+  ["get", "/api/incidents/1/history"],
   ["get", "/api/dashboard"],
   ["get", "/api/dashboard/metrics"],
   ["get", "/api/chat/channels"],

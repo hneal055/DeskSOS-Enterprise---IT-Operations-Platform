@@ -33,6 +33,22 @@ export default function App({ user, onSignOut, onSessionEnded }) {
   const [ticketLongitude, setTicketLongitude] = useState('-118.2437');
   const [ticketAssignedTo, setTicketAssignedTo] = useState('Node-Ops-Lead');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [history, setHistory] = useState([]);
+
+  // Load the selected incident's history; reload when its status or lock
+  // changes (those arrive over the socket and update selectedIncident)
+  const selectedId = selectedIncident && (selectedIncident.id || selectedIncident._id);
+  const selectedVersion = selectedIncident && `${selectedIncident.updated_at}|${selectedIncident.lockedBy || ''}`;
+  useEffect(() => {
+    if (!selectedId) { setHistory([]); return; }
+    let cancelled = false;
+    // Short delay so a lock taken on selection is included
+    const t = setTimeout(async () => {
+      const res = await apiFetch(`${API_BASE}/api/incidents/${selectedId}/history`);
+      if (!cancelled && res.ok) setHistory(await res.json());
+    }, 300);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [selectedId, selectedVersion]);
 
   // Load Incidents & Health Status (Polling Fallback)
   useEffect(() => {
@@ -540,6 +556,26 @@ export default function App({ user, onSignOut, onSessionEnded }) {
                     <div className="bg-slate-950 p-3 rounded border border-slate-800 text-xs text-slate-300 min-h-[100px]">
                       {selectedIncident.description}
                     </div>
+                  </div>
+
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">History</p>
+                    <ol data-testid="incident-history" className="bg-slate-950 p-3 rounded border border-slate-800 text-xs space-y-1.5 max-h-40 overflow-y-auto">
+                      {history.length === 0 ? (
+                        <li className="text-slate-500">No recorded changes.</li>
+                      ) : history.map((e) => (
+                        <li key={e.id} className="flex justify-between gap-2">
+                          <span className="text-slate-300">
+                            {e.action === 'created' && 'Created'}
+                            {e.action === 'ingested' && `Received from ${e.actor.name}${e.details.externalId ? ` (${e.details.externalId})` : ''}`}
+                            {e.action === 'status_changed' && `${e.details.from} → ${e.details.to}`}
+                            {e.action === 'locked' && 'Locked'}
+                            {e.actor.type === 'user' && <span className="text-slate-500"> by {e.actor.name}</span>}
+                          </span>
+                          <span className="text-slate-500 whitespace-nowrap">{new Date(e.createdAt).toLocaleString()}</span>
+                        </li>
+                      ))}
+                    </ol>
                   </div>
                 </div>
 
