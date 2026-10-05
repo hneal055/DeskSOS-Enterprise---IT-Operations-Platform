@@ -96,7 +96,13 @@ if ($SkipBuild) {
     foreach ($dir in $Server, $Client) {
         Push-Location $dir
         try {
-            if (-not (Test-Path node_modules)) { npm ci; if ($LASTEXITCODE) { Fail "npm ci failed in $dir" } }
+            # Reinstall when packages are missing or the lockfile changed since the
+            # last install (e.g. after a git pull), not only on the first run
+            $installed = 'node_modules\.package-lock.json'
+            if (-not (Test-Path $installed) -or
+                (Get-Item package-lock.json).LastWriteTime -gt (Get-Item $installed).LastWriteTime) {
+                npm ci; if ($LASTEXITCODE) { Fail "npm ci failed in $dir" }
+            }
             npm run build; if ($LASTEXITCODE) { Fail "build failed in $dir" }
         } finally { Pop-Location }
     }
