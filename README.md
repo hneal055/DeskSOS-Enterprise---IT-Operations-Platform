@@ -44,7 +44,7 @@ cd client; npm install; cd ..
 
 ### Local Development on Windows (PowerShell scripts)
 
-Two scripts in the repo root manage a dev session: the backend runs under PM2 and the React client runs with `npm start`. The backend always loads `backend/server/.env` (not the repo-root `.env`, which belongs to a different stack). It listens on port 5100 because 5000 is used by the DESKSOS-Desktop backend.
+Two scripts in the repo root manage a dev session: the backend runs under PM2 and the React dashboard runs on the Vite dev server (`npm start`, port 3000). The backend always loads `backend/server/.env` (not the repo-root `.env`, which belongs to a different stack). It listens on port 5100 because 5000 is used by the DESKSOS-Desktop backend.
 
 | Script | What it does |
 | ------ | ------------ |
@@ -65,7 +65,7 @@ Two scripts in the repo root manage a dev session: the backend runs under PM2 an
 | `-DryRun` | Show what would be stopped without changing anything |
 | `-Backup` | Run `backup-desksos.ps1` before tearing down |
 | `-KillPm2` | Stop **all** PM2 daemons and every app they manage (full PM2 reset, also affects non-DeskSOS PM2 apps) |
-| `-ClearCache` | Delete `client/node_modules/.cache` (fixes stale React builds) |
+| `-ClearCache` | Delete `client/node_modules/.vite` (fixes a stale dev-server cache) |
 | `-Force` | Kill whatever holds ports 5100/3000, even if it doesn't look like DeskSOS |
 
 The PM2 process name is deliberately `desksos-enterprise-backend`. The sibling `DESKSOS-Desktop` project registers its own backend as `desksos-backend` (port 5443), and sharing that name made `start-dev.ps1` restart the wrong app. Keep PM2 names unique per project.
@@ -82,7 +82,71 @@ On Windows, PM2 communicates through the named pipe `\\.\pipe\rpc.sock`. If the 
 
 ### Production deployment
 
-Not supported yet. Production setup (HTTPS, a production build of the dashboard served by the backend, restart on boot, monitoring) is Phase 2 of the [readiness plan](docs/PRODUCTION-READINESS-PLAN.md). The earlier Docker Compose files were removed because they no longer matched the application.
+Production runs alongside development on the same PC, under its own PM2 name, port and database:
+
+| | Development | Production |
+|---|---|---|
+| Address | http://localhost:3000 (Vite) + :5100 (API) | **https://FORD-DC01:5543** (dashboard and API on one port) |
+| PM2 name | `desksos-enterprise-backend` | `desksos-enterprise` |
+| Database | `backend/server/data/enterprise.db` | `backend/server/data/enterprise-prod.db` |
+| Secrets | `backend/server/.env` | `backend/server/.env.production` (its own `JWT_SECRET` and `INGEST_API_KEY`) |
+
+**Start or restart production** from an Administrator **PowerShell 7** window:
+
+```powershell
+.\start-production.ps1            # build, then (re)start and check health
+.\start-production.ps1 -SkipBuild # restart the existing build
+```
+
+The script:
+
+1. checks that PM2 is reachable from the window
+2. creates `.env.production` with fresh secrets if it's missing (never printed)
+3. creates the HTTPS certificate if it's missing, and warns when it's near expiry
+4. builds the backend and dashboard
+5. replaces any previous production instance
+6. starts it with `backend/server/ecosystem.config.js` and saves PM2's process list
+7. waits for `/health` over HTTPS
+
+Running it again is harmless. On the first start of the production database, it shows how to read the one-time admin password from the log.
+
+Other commands: `pm2 status`, `pm2 logs desksos-enterprise`, `pm2 stop desksos-enterprise`.
+
+**Reset a production account:**
+
+```powershell
+cd backend\server
+$env:DATABASE_PATH = 'data\enterprise-prod.db'
+npm run user:reset-password -- admin@desksos.local
+```
+
+**Restart on boot, nightly backup, health monitor and firewall**, from an Administrator PowerShell 7 window:
+
+```powershell
+.\register-production-tasks.ps1 -DryRun   # preview (no admin needed)
+.\register-production-tasks.ps1           # register or update
+.\register-production-tasks.ps1 -Unregister
+```
+
+| What | Schedule | Details |
+|---|---|---|
+| `DeskSOS Enterprise Startup` | at boot + 3 min | `start-production.ps1 -SkipBuild`. Waits until DeskSOS Desktop's startup task (+1 min) has run, because two PM2 commands at once can each spawn a daemon |
+| `DeskSOS Enterprise Daily Backup` | daily 02:30 | Verified backup of `enterprise-prod.db` into `backups\production` (14 kept). Fails loudly if the database disappears while backups exist |
+| `DeskSOS Enterprise Health Monitor` | every 5 min | Checks `https://localhost:5543/health` with normal certificate validation. Alerts once on DOWN and once on recovery, and warns daily before the certificate expires (14 days) |
+| Firewall `DeskSOS Enterprise (HTTPS 5543, LAN only)` | n/a | Inbound TCP 5543 from the **local subnet only**, under every network profile |
+
+The tasks run as the current user whether or not anyone is signed in, using the MSI install of PowerShell 7. The script refuses to use the Microsoft Store version, which can't run in such tasks. Logs are in `backend\server\logs\` (`startup.log`, `backup.log`, `monitor.log`).
+
+**Alerts** go to a Teams channel and/or email. Set these as user-level environment variables, then run the register script again:
+
+```powershell
+[Environment]::SetEnvironmentVariable('ALERT_TEAMS_WEBHOOK_URL', '<incoming webhook or Workflows URL>', 'User')
+# optional email: ALERT_SMTP_HOST, ALERT_SMTP_PORT, ALERT_SMTP_USER, ALERT_SMTP_PASS, ALERT_TO
+```
+
+Without them, alerts are only written to `monitor.log`.
+
+The earlier Docker Compose files were removed because they no longer matched the application.
 
 ## 🏗️ Architecture
 
@@ -105,7 +169,7 @@ Not supported yet. Production setup (HTTPS, a production build of the dashboard 
 ## 🛠️ Technology Stack
 
 - **Backend:** Node.js 22+, Express 4, TypeScript, Socket.IO 4, better-sqlite3, jsonwebtoken
-- **Frontend:** React 18 (Create React App), Socket.IO client, Tailwind (CDN in development)
+- **Frontend:** React 18 built with Vite, Socket.IO client, Tailwind CSS 3 (compiled at build time)
 - **Process management:** PM2
 - **Tests and CI:** Jest and supertest (backend), GitHub Actions
 
@@ -124,7 +188,7 @@ DESKSOS/
 │   ├── scripts/backup-db.js    # Verified online backup
 │   ├── tests/                  # Jest + supertest
 │   └── .env.example
-├── client/                     # React dashboard (Create React App)
+├── client/                     # React dashboard (Vite)
 ├── docs/                       # Plans and API reference
 ├── start-dev.ps1 / stop-dev.ps1        # Dev session start / teardown
 ├── start-backend.ps1 / stop-backend.ps1
@@ -144,6 +208,12 @@ Copy `backend/server/.env.example` to `backend/server/.env`. That file is ignore
 | `INGEST_API_KEY` | Shared key DeskSOS Desktop sends as `X-API-Key`. Ingest is disabled while unset | unset |
 | `CORS_ORIGINS` | Browser origins allowed to use the API and socket (comma-separated) | `http://localhost:3000,http://localhost:3001` |
 | `RATE_LIMIT_API` / `_LOGIN` / `_INGEST` | Requests per IP per 15 minutes (sign-in: failed attempts per IP + email) | `600` / `10` / `2000` |
+| `SERVE_CLIENT` | Serve the built dashboard (`client/build`) from this server | `true` in production, otherwise `false` |
+| `CLIENT_BUILD_PATH` | Where the built dashboard is | `client/build` |
+| `TLS_CERT_PATH` / `TLS_KEY_PATH` | HTTPS certificate and key (PEM, relative to `backend/server`). Both or neither; **required in production** | unset (HTTP) |
+| `ALLOW_HTTP_IN_PRODUCTION` | `true` only if a TLS proxy sits in front of the server | unset |
+
+In production (`NODE_ENV=production`), `backend/server/.env.production` is loaded first and wins over `.env`. Production must have its **own** `JWT_SECRET` (and ingest key), so tokens from the development server don't work on production.
 
 > If a Windows user environment variable named `JWT_SECRET` exists, it overrides `.env`. Remove it (or start from a terminal that doesn't have it), or the server may refuse to start.
 
@@ -178,6 +248,28 @@ This takes an online backup of the SQLite database (safe while the server runs),
 
   This prints a temporary password, reactivates the account if needed, and ends that account's sessions.
 
+## 🔒 HTTPS
+
+Certificates come from this PC's [mkcert](https://github.com/FiloSottile/mkcert) certificate authority, the same one DeskSOS Desktop uses:
+
+```powershell
+pwsh backend\server\scripts\gen-cert.ps1
+```
+
+This creates `backend\server\certs\server.crt` and `server.key` for `localhost`, `127.0.0.1`, the computer name and its LAN address (all ignored by git), plus `desksos-ca.crt`, the authority's **public** certificate. Browsers on this PC trust the site straight away.
+
+**Each other PC that opens the dashboard must trust the authority once.** Without a Windows domain there's no group policy to do it automatically. On each PC, in an Administrator PowerShell window:
+
+```powershell
+Import-Certificate -FilePath \\FORD-DC01\path\to\desksos-ca.crt -CertStoreLocation Cert:\LocalMachine\Root
+```
+
+Chrome and Edge then trust it. Firefox uses its own store: in `about:config`, set `security.enterprise_roots.enabled` to `true`.
+
+Keep mkcert's private key (`rootCA-key.pem` in `mkcert -CAROOT`) on this PC only. Anyone holding it can create certificates those PCs would trust.
+
+**Node.js programs** that call the server over HTTPS, such as the Desktop bridge, don't use the Windows certificate store. Point them at the authority with `NODE_EXTRA_CA_CERTS=<path>\desksos-ca.crt`.
+
 ## 🔑 Rotating the ingest key
 
 The DeskSOS Desktop bridge authenticates to `POST /api/ingest/incidents` with a key shared by both projects. To replace it, for example if it may have been exposed:
@@ -193,6 +285,15 @@ The script:
 - never prints the key
 
 Then restart **both** backends. Tickets created on Desktop while only one side has restarted are refused with a 401, stay queued in Desktop's outbox, and are delivered automatically once both use the new key. Nothing is lost.
+
+**Production pair:** `.\rotate-ingest-key.ps1 -Production` does the same for `backend\server\.env.production` (`INGEST_API_KEY`) and Desktop's `backend\.env.production` (`ENTERPRISE_INGEST_KEY`), creating Desktop's file if it doesn't exist. This is also how the production bridge is first connected. Then restart both:
+
+```powershell
+.\start-production.ps1 -SkipBuild
+C:\Projects\DESKSOS-Desktop\backend\scripts\start-production.ps1 -SkipBuild
+```
+
+Desktop production already points at `https://localhost:5543` and trusts the mkcert CA through `NODE_EXTRA_CA_CERTS` (its `ecosystem.config.js`).
 
 ## 📡 API
 
@@ -232,11 +333,28 @@ The backend suite covers sign-in, roles, an access matrix over every protected r
 | Strong `JWT_SECRET` required; 8-hour tokens revoked on password, role or status change | ✅ |
 | Security headers, rate limiting (incl. sign-in brute force), 100 KB body cap | ✅ |
 | Input validation on every write route | ✅ |
-| Incident audit trail | ✅ |
+| Incident audit trail; security audit log (sign-ins, password changes, user management) | ✅ |
 | CORS restricted to configured origins | ✅ |
-| Secrets kept out of git and backups | ✅ |
-| HTTPS | ❌ Plan task 2.3 |
-| Production deployment (served build, restart on boot) | ❌ Plan Phase 2 |
+| Secrets kept out of git and backups; production has its own secrets | ✅ |
+| HTTPS (required in production), HSTS, strict Content-Security-Policy | ✅ |
+| Production deployment: served build, start script | ✅ |
+| Restart on boot, LAN-only firewall rule | ❌ Plan tasks 2.5 and 2.6 (admin steps) |
+
+## 📜 Logs
+
+The server logs through winston to its standard output; PM2 writes that to its log files and the `pm2-logrotate` module rotates them daily, keeping 14 days, compressed.
+
+- **Production:** one JSON object per line at `info` level and above. Entries have a `type`:
+  - `request`: method, path (no query string), status, duration, user, IP
+  - `audit`: `auth.login`, `auth.login_failed`, `auth.password_changed`, `user.created`, `user.updated` (with from → to), `user.password_reset`
+  - `startup`
+- **Development:** short readable lines at `debug` level.
+- **Never logged:** passwords, temporary passwords, tokens, API keys.
+
+```powershell
+pm2 logs desksos-enterprise                      # live
+Select-String backend\server\logs\pm2-out*.log -Pattern '"type":"audit"'   # security events
+```
 
 ## 🤝 Contributing
 

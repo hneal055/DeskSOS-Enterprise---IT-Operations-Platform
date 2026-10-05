@@ -1,6 +1,7 @@
 import { Server as SocketIOServer, Socket } from "socket.io";
 import { userFromToken } from "../middleware/auth";
 import { User } from "../users";
+import { logger } from "../logger";
 
 interface ConnectedUser {
   id: string;
@@ -43,7 +44,7 @@ export const initializeSocket = (io: SocketIOServer) => {
 
   io.on("connection", (socket: Socket) => {
     const me = socket.data.user as User;
-    console.log(`User connected: ${me.email} (${socket.id})`);
+    logger.debug("Socket connected", { type: "socket", user: me.email, socketId: socket.id });
 
     if (!socketsByUser.has(me.id)) socketsByUser.set(me.id, new Set());
     socketsByUser.get(me.id)!.add(socket);
@@ -51,7 +52,7 @@ export const initializeSocket = (io: SocketIOServer) => {
     // Presence uses the signed-in identity, never what the client claims
     socket.on("user:join", () => {
       connectedUsers.set(String(me.id), { id: String(me.id), name: me.name, socket });
-      console.log(`${me.name} joined. Total users: ${connectedUsers.size}`);
+      logger.debug("Socket user joined", { type: "socket", user: me.email, online: connectedUsers.size });
       io.emit("presence:update", presence());
     });
 
@@ -90,7 +91,7 @@ export const initializeSocket = (io: SocketIOServer) => {
       const entry = connectedUsers.get(String(me.id));
       if (entry && entry.socket.id === socket.id) {
         connectedUsers.delete(String(me.id));
-        console.log(`${me.name} disconnected. Total users: ${connectedUsers.size}`);
+        logger.debug("Socket user left", { type: "socket", user: me.email, online: connectedUsers.size });
         io.emit("presence:update", presence());
       }
     });

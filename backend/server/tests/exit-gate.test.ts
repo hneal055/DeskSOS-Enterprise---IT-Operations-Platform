@@ -6,7 +6,8 @@ import { app } from "../src/index";
 
 // Routes that are open by design, and why
 const OPEN_BY_DESIGN: Record<string, string> = {
-  "GET /": "API info only, no data",
+  "GET /": "API info only, no data (the dashboard page when SERVE_CLIENT is on)",
+  "GET /api": "API info only, no data",
   "GET /health": "uptime monitoring",
   "POST /api/auth/login": "how you get a token (rate limited)",
   "POST /api/auth/logout": "stateless no-op, returns 204",

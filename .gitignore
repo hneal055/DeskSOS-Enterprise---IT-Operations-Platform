@@ -6,6 +6,7 @@
 
 # SSL Certificates - NEVER commit
 ssl/
+backend/server/certs/
 *.pem
 *.key
 *.crt

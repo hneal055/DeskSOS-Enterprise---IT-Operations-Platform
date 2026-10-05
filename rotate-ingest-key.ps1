@@ -4,6 +4,9 @@
 # Generates a new random key and writes it to BOTH places at once:
 #   Enterprise  backend\server\.env       INGEST_API_KEY=...
 #   Desktop     backend\.env              ENTERPRISE_INGEST_KEY=...
+# With -Production, the production pair instead:
+#   Enterprise  backend\server\.env.production
+#   Desktop     backend\.env.production   (created if missing)
 # The key is never printed.
 #
 # Afterwards restart both backends (order doesn't matter). Tickets created on
@@ -11,15 +14,33 @@
 # outbox and are delivered automatically once both sides use the new key.
 #
 # Usage:
-#   .\rotate-ingest-key.ps1
+#   .\rotate-ingest-key.ps1                 # development pair
+#   .\rotate-ingest-key.ps1 -Production     # production pair
 #   .\rotate-ingest-key.ps1 -DesktopEnv D:\path\to\DESKSOS-Desktop\backend\.env
 
 param(
-    [string]$EnterpriseEnv = (Join-Path $PSScriptRoot "backend\server\.env"),
-    [string]$DesktopEnv = "C:\Projects\DESKSOS-Desktop\backend\.env"
+    [switch]$Production,
+    [string]$EnterpriseEnv,
+    [string]$DesktopEnv
 )
 
 $ErrorActionPreference = 'Stop'
+
+$suffix = if ($Production) { '.env.production' } else { '.env' }
+if (-not $EnterpriseEnv) { $EnterpriseEnv = Join-Path $PSScriptRoot "backend\server\$suffix" }
+if (-not $DesktopEnv) { $DesktopEnv = "C:\Projects\DESKSOS-Desktop\backend\$suffix" }
+
+# Production secrets files may not exist yet: create them (empty) so the key
+# can be written. Development files must already exist.
+if ($Production) {
+    foreach ($f in $EnterpriseEnv, $DesktopEnv) {
+        if (-not (Test-Path (Split-Path $f -Parent))) { throw "Folder not found: $(Split-Path $f -Parent)" }
+        if (-not (Test-Path $f)) {
+            Set-Content $f "# Production secrets (never commit). Created by rotate-ingest-key.ps1."
+            Write-Host "Created $f" -ForegroundColor DarkYellow
+        }
+    }
+}
 
 function Set-EnvValue([string[]]$lines, [string]$name, [string]$value) {
     $found = $false
@@ -81,6 +102,11 @@ try {
 
 Write-Host "Ingest key rotated (length $($key.Length)); both .env files updated and verified." -ForegroundColor Green
 Write-Host "Now restart both backends, from an Administrator window:" -ForegroundColor Yellow
-Write-Host "  Enterprise: .\stop-dev.ps1 ; .\start-dev.ps1   (production: its start script)"
-Write-Host "  Desktop:    restart its backend (dev: Ctrl+C then npm run dev; production: start-production.ps1)"
+if ($Production) {
+    Write-Host "  Enterprise: .\start-production.ps1 -SkipBuild"
+    Write-Host "  Desktop:    C:\Projects\DESKSOS-Desktop\backend\scripts\start-production.ps1 -SkipBuild"
+} else {
+    Write-Host "  Enterprise: .\stop-dev.ps1 ; .\start-dev.ps1"
+    Write-Host "  Desktop:    restart its dev backend (Ctrl+C, then npm run dev)"
+}
 Write-Host "Tickets created in between are queued by Desktop and delivered once both have restarted."

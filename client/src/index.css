@@ -442,3 +442,11 @@ input:focus, textarea:focus, select:focus {
 ::-webkit-scrollbar-thumb:hover {
     background: rgba(255,255,255,0.2);
 }
+
+
+/* Tailwind, compiled at build time. Placed after the styles above to keep the
+   same precedence the cdn.tailwindcss.com script had: it injected Tailwind's
+   styles after the app's own CSS. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

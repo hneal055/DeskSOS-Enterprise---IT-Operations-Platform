@@ -265,6 +265,12 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 | 2026-10-05 | **Phase 1 exit gate** | ✅ Passed (on branch) |
 | 2026-10-05 | PR #11 review: 8 CodeRabbit findings | ✅ All fixed and verified |
 | 2026-10-05 | **Phase 1 merged and running locally** | ✅ Verified (admin set up; anonymous API access refused) |
+| 2026-10-05 | 2.1 Dashboard moved from Create React App to Vite | ✅ Verified (on branch `feat/phase2-production`) |
+| 2026-10-05 | 2.2 Backend serves the built dashboard | ✅ Verified (on branch) |
+| 2026-10-05 | 2.3 HTTPS | ✅ Verified (on branch); trusting the CA on other LAN PCs is an admin step |
+| 2026-10-05 | 2.4 Production PM2 config and start script | ✅ Verified (on branch, with test overrides); first real production start is an admin step |
+| 2026-10-05 | 2.7 Structured logs and security audit log | ✅ Verified (on branch) |
+| 2026-10-05 | 2.8 Desktop production → Enterprise production bridge | ✅ Verified end to end (Enterprise branch + Desktop PR #7); key pairing is an admin step |
 
 ### 0.3 Enterprise backups capture real data
 
@@ -565,6 +571,131 @@ Each finding was checked against the code before acting. All 8 were valid. Fixed
   - `/health` returns ok.
   - **An anonymous `GET /api/incidents` returns 401.** Before Phase 1 it returned every incident.
 - **Goal impact:** Phase 1's protection is now live on the machine, not just on a branch. Next for *administrators*: add the team under **Users**. Next in the plan: Phase 2 (production setup).
+
+### 2.1 Dashboard moved from Create React App to Vite
+
+- **Change** (`d40bf78`, worktree `C:\Projects\DESKSOS-phase2`):
+  - Vite 6 and `@vitejs/plugin-react` replace `react-scripts`, which is deprecated.
+  - **Tailwind 3.4 is compiled at build time** instead of by the `cdn.tailwindcss.com` script in the browser. Its directives go after the app's CSS to keep the precedence the CDN had.
+  - The dev server stays on port 3000 with the same proxy to `:5100`, and the build still goes to `build/`, so `start-dev.ps1`, `stop-dev.ps1` and CI need no workflow changes.
+  - `index.html` moved to `client/`, and the JSX files were renamed `.jsx`.
+  - CI: the CRA `CI=false` workaround is gone, and the client job now **fails on high or critical production-dependency findings**.
+  - `stop-dev.ps1 -ClearCache` targets Vite's cache. README updated.
+- **Verification:**
+  - **Visual parity with the CRA build:** a script captured 3 screens from each build and compared **252 computed style values: 251 identical**. The one difference is the same gradient written two ways (`0%` vs `0px`). Screenshots match, with no console errors in either build.
+  - Browser flows on the Vite build: 15/15 and 14/14.
+  - The dev server serves the page and forwards `/health` and `/api` to the backend.
+  - The build has **no inline scripts**, which the strict security policy requires.
+  - **Client production audit: 80 findings to 0.**
+- **Remaining (build tools only):** 5 high findings, all one advisory in `braces` (deeply nested glob patterns), pulled in by Tailwind 3's build tooling. The only patterns it processes are the two in `tailwind.config.js`, and nothing reaches the browser. The fix is Tailwind 4, a major upgrade with class renames, deferred to avoid risking the visual parity.
+- **Goal impact:** *users* get the same dashboard built with supported tools, with styles compiled once instead of in every browser, and the shipped dependencies have no known vulnerabilities. This unblocks 2.2 and moves forward go-live item "production audit 0 high or critical".
+
+### 2.2 Backend serves the built dashboard
+
+- **Change** (`4a1405d`):
+  - When `SERVE_CLIENT` is on (the default in production), the backend serves `client/build`. Hashed `/assets` files are cached for a year and `index.html` is never cached.
+  - Client-side routes fall back to `index.html`, but `/api`, `/socket.io` and `/health` are excluded, so **unknown API paths still return a JSON 404**. A missing build is logged rather than crashing the server.
+  - API information moved to `GET /api` as well.
+  - The security policy keeps helmet's strict defaults (`script-src 'self'`, no inline scripts). **`upgrade-insecure-requests` is only sent once HTTPS is on**: browsers would otherwise fetch the server's own files over HTTPS and break a plain-HTTP deployment.
+- **Verification:**
+  - 7 new tests: `/` serves `index.html` uncached; assets get the immutable year-long cache; a missing asset returns 404, not the page; root static files are served; deep links return the page; API, health and auth unchanged (unknown API path gives JSON 404, incidents give 401); the policy forbids inline scripts and has no upgrade directive.
+  - The exit gate caught the new open `GET /api` until it was added to the allowlist with its reason. Suite: **157/157**.
+  - **Real browser against the backend serving the Vite build on one port, no proxy:** **17/17**, including **no security-policy violations** and **no unexpected console errors**. User management passes 14/14.
+  - The violation check was proven able to fail: temporarily restricting `style-src` to `'self'` made it report the blocked Google Fonts stylesheet.
+- **Goal impact:** production can run as **one server on one port**, with no development server, no CDN and a strict security policy. This is the plan's "done when" for task 2.2, and the base for HTTPS (2.3) and the production start script (2.4).
+
+### 2.3 HTTPS
+
+- **Change** (`3bb37d2`):
+  - The server runs HTTPS when `TLS_CERT_PATH` and `TLS_KEY_PATH` are set (paths relative to `backend/server`). One without the other is fatal, and **production refuses to start without HTTPS** unless `ALLOW_HTTP_IN_PRODUCTION=true` (for a TLS proxy). An unreadable certificate or key, or a busy port, gives a clear fatal message.
+  - With HTTPS on, the security policy adds `upgrade-insecure-requests`. HSTS was already sent.
+  - **Production loads its own secrets** from `backend/server/.env.production`, which git ignores. A shared `JWT_SECRET` would let development tokens work on production, because user IDs exist in both databases.
+  - `scripts/gen-cert.ps1` finds mkcert even off PATH and issues a certificate from this PC's mkcert CA (the one Desktop already uses, and already trusted here). It covers `localhost`, `127.0.0.1`, `FORD-DC01` and the physical LAN address, skipping Hyper-V and WSL adapters. It exports the CA's **public** certificate for other PCs, never its key. `certs/` is ignored by git.
+  - The README covers setup, trusting the CA on LAN PCs (Chrome, Edge, Firefox) and `NODE_EXTRA_CA_CERTS`.
+- **Verification:**
+  - 5 config tests. Certificate issued for exactly the expected names; no private key copied; files ignored.
+  - **Real browser over HTTPS with normal certificate validation**, backend serving the dashboard: **17/17**. That includes the `wss://` live feed, sign-out of a deactivated user in 41 ms, and **no security-policy violations with the upgrade directive active**. User management passes 14/14.
+  - Windows validates the certificate, HSTS is present, and plain HTTP to the HTTPS port fails.
+- **Found:** Node.js doesn't use the Windows certificate store. The test's Node request failed until given `NODE_EXTRA_CA_CERTS`. **The Desktop bridge (Node) will need the same in task 2.8.**
+- **Admin step remaining:** import `desksos-ca.crt` on each other LAN PC that opens the dashboard (README → HTTPS).
+- **Goal impact:** *users'* sign-in tokens and *clients'* incident data are encrypted on the network, browsers trust the site without warnings, and production can't accidentally run unencrypted. This covers go-live item "HTTPS with a certificate trusted on client PCs" (pending the per-PC import).
+
+### 2.4 Production PM2 config and start script
+
+- **Change** (`ccc3db0`):
+  - `backend/server/ecosystem.config.js` defines PM2 app `desksos-enterprise`: port **5543**, `data/enterprise-prod.db`, HTTPS, dashboard served, restart policy, memory limit, logs.
+  - `start-production.ps1` (Administrator, PowerShell 7):
+    - checks PM2 reachability
+    - creates `.env.production` with its own `JWT_SECRET` and `INGEST_API_KEY` if missing (never printed)
+    - creates the certificate if missing, and warns under 30 days
+    - builds, or uses `-SkipBuild`
+    - replaces any previous instance, then starts and saves under PM2
+    - waits for HTTPS health
+    - on a new database, shows how to read the one-time admin password, taking the real log path from PM2 (PM2 adds the process ID to log names)
+  - **`.env.production` now overrides inherited variables**, so a stale value from a shell or the PM2 daemon can't replace production secrets. `DATABASE_PATH` is resolved from `backend/server`.
+- **Verification** (real PM2 daemon, with test name, port and database overrides so production wasn't touched):
+  - **Run 1** (full build): secrets generated, certificate valid for 823 days, healthy over HTTPS in production mode.
+  - **Run 2** (`-SkipBuild`, as the boot task will use it): **kept the existing secrets**, replaced the instance, exactly one registration, dev instance untouched, healthy.
+  - **Production browser flow over HTTPS against the PM2 instance: 17/17**, with no sample data (correct for production).
+  - **Override proven:** with a stale 28-character `JWT_SECRET` deliberately inherited, production still started with its own secret.
+  - Production without HTTPS: **refused**.
+  - The recovery script works against the production database.
+  - Afterwards the test instance was removed, PM2's saved list re-saved (no trace in the dump), and the test secrets deleted.
+- **Admin step remaining:** after merging, run `.\start-production.ps1` once from an Administrator PowerShell 7 window, then sign in with the one-time production admin password and change it.
+- **Goal impact:** *administrators* start or restart production with **one command that's safe to repeat**, with its own port, database and secrets. This is task 2.4's "done when". Restart on boot (2.5) builds on it with `-SkipBuild`.
+
+### 2.7 Structured logs and security audit log
+
+- **Change** (`5658468`):
+  - winston writes to stdout and stderr: **JSON lines in production**, short readable lines in development, silent in tests. PM2 captures the output, and the already-configured **`pm2-logrotate`** rotates it (daily, **14 days**, compressed, 10 MB cap), so there are no extra log files or dependencies.
+  - **Request log**, which runs first so body-parser errors are logged too: method, path without the query string, status, duration, user and IP. Health checks and static files are logged at debug.
+  - **Security audit events**, closing the 1.9 follow-up, each recording who did it: `auth.login`, `auth.login_failed`, `auth.password_changed`, `auth.password_change_failed`, `user.created`, `user.updated` (from → to), `user.password_reset`.
+  - **Never logged:** passwords, temporary passwords, tokens, keys.
+  - The first-run banner stays plain text deliberately, because scripts read it.
+  - Production `LOG_LEVEL=info` is set in `ecosystem.config.js`, since the shared `.env` sets `debug` for development. The README has a new Logs section.
+- **Verification:**
+  - 8 tests: request fields, the query string left out, levels, body-parser errors logged, audit events with actor and changes, **no password, temporary password or token in any entry**. Suite: **170/170**.
+  - **Live production run:** every stdout line parses as JSON except the 6-line first-run banner. At `info` level, routine requests (health, page) produce no lines while an API refusal does.
+- **Found:** production first logged health checks at debug level because it inherited `LOG_LEVEL=debug` from the shared `.env`. Fixed by setting `info` in the PM2 production config.
+- **Goal impact:** *administrators* can see who signed in, who failed, and who created, changed or reset accounts, and search request history by status, path or user, without logs filling the disk. Covers go-live item "logs rotate", and supports security reviews and incident handling.
+
+### 2.8 Desktop production → Enterprise production bridge
+
+- **Change:**
+  - **Desktop PR #7** (`d529b57`): production loads `backend/.env.production` with override (for its own `ENTERPRISE_INGEST_KEY`). `env_production` points at `https://localhost:5543/api/ingest/incidents`, source `desksos-desktop-prod`, and sets **`NODE_EXTRA_CA_CERTS`** to the mkcert root CA. Bridge errors now include fetch's underlying cause. `.gitignore` now covers `.env.production`, which it didn't before. OPERATIONS.md 3.8 updated.
+  - **Enterprise** (`6d8dbe3`): `rotate-ingest-key.ps1 -Production` pairs the two production keys, creating Desktop's file if needed. README updated.
+- **Verification:**
+  - Desktop tests **80/80**, 5 new.
+  - **`-Production` rotation** on PowerShell 5.1 and 7: production `JWT_SECRET` untouched, one key line, keys match, nothing printed.
+  - **End to end with throwaway production-mode instances, both over HTTPS:**
+    - **with** `NODE_EXTRA_CA_CERTS`, Desktop's P1 ticket arrived in Enterprise as **CRITICAL** from `desksos-desktop-prod` (Enterprise logged `POST /api/ingest/incidents 201`)
+    - **without** it, delivery failed and the ticket stayed queued. The setting is required, not decorative.
+- **Found during verification:**
+  - A first test run reported production's `JWT_SECRET` as not kept. The **test data** was malformed: in PowerShell the comma binds tighter than `+`, which joined two lines into one. The script was correct, and the rerun with proper data confirmed it.
+  - Node's "fetch failed" hid the certificate error. Desktop now logs the cause.
+- **Admin step remaining** (after Enterprise production is running): `.\rotate-ingest-key.ps1 -Production`, then restart both production backends.
+- **Goal impact:** tickets raised on *client* PCs through Desktop production reach the Enterprise production dashboard encrypted and authenticated, with production and development fully separated (keys, sources, databases). This is the plan's "done when" for 2.8, pending the admin pairing step.
+
+### 2.5 and 2.6 Start on boot, firewall (and backup and monitoring): scripted
+
+- **Change** (`092f0d7`): `register-production-tasks.ps1`, run once from an Administrator PowerShell 7 window, sets up the following:
+  - **Startup** task at boot +3 minutes, calling `start-production.ps1 -SkipBuild`. Desktop's task runs at +1 minute, and two PM2 commands at once can each spawn a daemon.
+  - **Daily Backup** task at 02:30 (`backup-prod.ps1`): the production database goes to `backups\production`, 14 kept. This brings task 3.1 forward.
+  - **Health Monitor** task every 5 minutes (`monitor-health.ps1`). It validates the certificate, alerts once on DOWN and once on recovery, retries alerts that failed, and warns daily before the certificate expires. Alerts go to Teams (decision D6) via `ALERT_TEAMS_WEBHOOK_URL`, and to email via `ALERT_SMTP_*`.
+  - **Firewall rule** allowing inbound TCP 5543 from **LocalSubnet only**, on every profile (decision D3). It's scoped by address, so it still holds if the network profile changes.
+  - The tasks run with S4U and highest privileges, using the MSI PowerShell only. `-DryRun` previews without admin rights, and `-Unregister` removes everything. The README is updated.
+- **Verification:**
+  - **Register script:** parses cleanly, and the dry run lists exactly the three tasks and the rule. A real run without admin rights is **refused**.
+  - **Backup:** with no database yet it exits 0; a normal backup passed integrity verification; with the database deleted while backups exist it **exits 1**.
+  - **Monitor:** tested against a real HTTPS instance with a fake Teams webhook through a full outage:
+    - up: no alert
+    - stopped: one DOWN alert, not repeated on the next run
+    - recovered while the webhook was down: state held, then Recovered delivered on the next run
+    - certificate warning sent once per day
+    - cards use the Adaptive Card format
+    - a certificate name mismatch counts as down
+- **Admin step remaining:** after merging, and after `start-production.ps1` has run once, run `.\register-production-tasks.ps1` as Administrator. Start the backup and monitor tasks and check that both show `LastTaskResult` 0, then do a reboot test. Set `ALERT_TEAMS_WEBHOOK_URL` once a webhook exists.
+- **Goal impact:** production survives reboots without anyone signing in, is reachable only from the office LAN, is backed up nightly, and *administrators* hear about an outage within 5 minutes instead of from *users*. These are the "done when" conditions for 2.5 and 2.6, met once the admin step is done.
 
 ### Correction (2026-10-05)
 

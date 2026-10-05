@@ -1,6 +1,8 @@
 import express, { Express } from "express";
 import cors from "cors";
+import fs from "fs";
 import { createServer } from "http";
+import { createServer as createHttpsServer } from "https";
 import { Server as SocketIOServer } from "socket.io";
 import config from "./config"; // loads .env
 import dashboardRoutes from "./routes/dashboard";
@@ -15,12 +17,24 @@ import { pingDatabase } from "./db";
 import { ensureInitialAdmin } from "./users";
 import { requireAuth, requireRole } from "./middleware/auth";
 import { securityHeaders, apiLimiter, loginLimiter, ingestLimiter } from "./middleware/security";
+import { serveDashboard } from "./static";
+import { logger } from "./logger";
+import { requestLogger } from "./middleware/requestLog";
 
 // Initialize Express
 const app: Express = express();
 
-// Create HTTP server
-const httpServer = createServer(app);
+// HTTP or HTTPS server (same Express app and Socket.IO either way)
+function readTls(): { cert: Buffer; key: Buffer } {
+  try {
+    return { cert: fs.readFileSync(config.tlsCertPath), key: fs.readFileSync(config.tlsKeyPath) };
+  } catch (err) {
+    console.error(`[DeskSOS] FATAL: can't read the TLS certificate or key: ${(err as Error).message}`);
+    console.error("  Generate them with: pwsh backend/server/scripts/gen-cert.ps1");
+    process.exit(1);
+  }
+}
+const httpServer = config.tlsEnabled ? createHttpsServer(readTls(), app) : createServer(app);
 
 // Socket.IO, restricted to the configured browser origins
 const io = new SocketIOServer(httpServer, {
@@ -32,7 +46,9 @@ const io = new SocketIOServer(httpServer, {
 });
 app.set('io', io);
 
-// Security headers first, so they're on every response (including errors)
+// Request log first, so every response is logged (including body-parser
+// errors such as 413), then security headers on every response
+app.use(requestLogger);
 app.use(securityHeaders);
 
 app.use(
@@ -47,12 +63,6 @@ app.use(
 // ticket (description up to 20,000 characters), well under 100 KB.
 app.use(express.json({ limit: "100kb" }));
 app.use(express.urlencoded({ extended: true, limit: "100kb" }));
-
-// Request logging middleware
-app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} ${req.method} ${req.path}`);
-  next();
-});
 
 // API Routes
 // Sign-in is enforced where each router is mounted, so no route under these
@@ -78,13 +88,13 @@ app.get("/health", (req, res) => {
     pingDatabase();
     res.json({ status: "ok", timestamp: new Date().toISOString(), services: { database: "connected" } });
   } catch (err) {
-    console.error("[health] Database check failed:", (err as Error).message);
+    logger.error("Health check: database unavailable", { error: (err as Error).message });
     res.status(503).json({ status: "error", timestamp: new Date().toISOString(), services: { database: "unavailable" } });
   }
 });
 
-// Root API documentation
-app.get("/", (req, res) => {
+// API information (no data). At "/" too when the dashboard isn't served here.
+const apiInfo = (_req: express.Request, res: express.Response) => {
   res.json({
     message: "DeskSOS Enterprise API Server",
     version: "1.0.0",
@@ -95,7 +105,14 @@ app.get("/", (req, res) => {
       dashboard: "GET /api/dashboard",
     },
   });
-});
+};
+app.get("/api", apiInfo);
+
+if (config.serveClient) {
+  serveDashboard(app, config.clientBuildPath);
+} else {
+  app.get("/", apiInfo);
+}
 
 // Initialize Socket.IO event handlers
 initializeSocket(io);
@@ -106,7 +123,7 @@ app.use((req, res) => {
     error: "Not Found",
     path: req.path,
     method: req.method,
-    message: "Endpoint does not exist. See GET / for available endpoints.",
+    message: "Endpoint does not exist. See GET /api for available endpoints.",
   });
 });
 
@@ -126,7 +143,7 @@ app.use(
     if (err.type === "entity.too.large") {
       return res.status(413).json({ error: "Request body is too large", status: 413 });
     }
-    console.error("Error:", err);
+    logger.error("Unhandled request error", { method: req.method, path: req.path, status, error: err });
     // Never send internal error details to the client
     res.status(status).json({
       error: status >= 500 ? "Internal Server Error" : err.message || "Request failed",
@@ -148,10 +165,17 @@ if (require.main === module) {
   }
 
   const PORT = config.port;
+  httpServer.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      console.error(`[DeskSOS] FATAL: port ${PORT} is already in use.`);
+      process.exit(1);
+    }
+    throw err;
+  });
   httpServer.listen(PORT, () => {
-    console.log(`=====================================`);
-    console.log(`DeskSOS Backend is Live and Synced on port ${PORT}!`);
-    console.log(`=====================================`);
+    logger.info(`DeskSOS Backend is Live and Synced on port ${PORT} (${config.tlsEnabled ? "HTTPS" : "HTTP"}, ${config.nodeEnv})`, {
+      type: "startup", port: PORT, https: config.tlsEnabled, env: config.nodeEnv,
+    });
   });
 }
 

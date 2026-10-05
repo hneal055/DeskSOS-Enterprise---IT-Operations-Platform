@@ -35,7 +35,7 @@ jobs:
         run: npm run build
 
   client:
-    name: Client (React build)
+    name: Client (Vite build)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -55,6 +55,7 @@ jobs:
 
       - name: Build
         run: npm run build
-        env:
-          # CRA treats warnings as errors when CI=true; keep the build focused on real errors
-          CI: false
+
+      - name: Audit production dependencies
+        # Fails on high or critical findings in what ships to the browser
+        run: npm audit --omit=dev --audit-level=high
