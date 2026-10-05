@@ -153,6 +153,41 @@ Generate secrets with:
 
 This takes an online backup of the SQLite database (safe while the server runs), checks its integrity, saves it as one file in `backups\` (ignored by git), and keeps the newest 14. It doesn't back up `.env` files; keep secrets in a password manager.
 
+## 👥 Accounts
+
+- **First start:** the server creates `admin@desksos.local` with a random password, printed once in the startup output (and in PM2's log). Sign in and choose your own password right away; nothing else works until you do.
+- **Adding people:** admins use **Users** in the dashboard header. Each new user gets a temporary password, shown once, which they replace at first sign-in. Roles:
+  - **admin:** everything, including managing users
+  - **operator:** create, update and lock incidents
+  - **viewer:** read-only
+- **Leavers:** deactivate them in **Users**. Their sessions end immediately.
+- **Locked out of every admin account?** On the server:
+
+  ```powershell
+  cd backend\server
+  npm run build
+  npm run user:reset-password -- --list
+  npm run user:reset-password -- admin@desksos.local
+  ```
+
+  This prints a temporary password, reactivates the account if needed, and ends that account's sessions.
+
+## 🔑 Rotating the ingest key
+
+The DeskSOS Desktop bridge authenticates to `POST /api/ingest/incidents` with a key shared by both projects. To replace it, for example if it may have been exposed:
+
+```powershell
+.\rotate-ingest-key.ps1
+```
+
+The script:
+
+- writes a new random key to `backend\server\.env` (`INGEST_API_KEY`) and to Desktop's `backend\.env` (`ENTERPRISE_INGEST_KEY`; default path `C:\Projects\DESKSOS-Desktop\backend\.env`, override with `-DesktopEnv`)
+- checks that both files hold the same new key
+- never prints the key
+
+Then restart **both** backends. Tickets created on Desktop while only one side has restarted are refused with a 401, stay queued in Desktop's outbox, and are delivered automatically once both use the new key. Nothing is lost.
+
 ## 📡 API
 
 | Method & path | Auth | Status |
