@@ -21,13 +21,13 @@ describe("TLS settings", () => {
 });
 
 describe("env files", () => {
-  it("production loads .env.production before the shared .env (so its values win)", () => {
-    const files = envFilesFor("production", "/srv").map((f) => path.basename(f));
-    expect(files).toEqual([".env.production", ".env"]);
+  it("production loads .env.production first, overriding inherited values, then .env without overriding", () => {
+    const files = envFilesFor("production", "/srv").map((f) => [path.basename(f.path), f.override]);
+    expect(files).toEqual([[".env.production", true], [".env", false]]);
   });
 
-  it("other environments load only .env", () => {
-    expect(envFilesFor("development", "/srv").map((f) => path.basename(f))).toEqual([".env"]);
-    expect(envFilesFor(undefined, "/srv").map((f) => path.basename(f))).toEqual([".env"]);
+  it("other environments load only .env, never overriding", () => {
+    expect(envFilesFor("development", "/srv").map((f) => [path.basename(f.path), f.override])).toEqual([[".env", false]]);
+    expect(envFilesFor(undefined, "/srv").map((f) => [path.basename(f.path), f.override])).toEqual([[".env", false]]);
   });
 });

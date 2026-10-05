@@ -10,14 +10,18 @@ const SERVER_DIR = path.resolve(__dirname, "..", "..");
 // launched from the repo root otherwise picks up the unrelated root .env
 // (PORT=8000) and crashes with EADDRINUSE.
 //
-// In production, backend/server/.env.production is loaded first. dotenv never
-// overrides a value that's already set, so production's own secrets win over
-// the shared .env. Dev and production must not share JWT_SECRET: user ids
+// In production, backend/server/.env.production is loaded first and OVERRIDES
+// inherited environment variables: production's secrets must win even over a
+// stale value passed down by a shell or the PM2 daemon (a leftover user-level
+// JWT_SECRET did exactly that). Keep only secrets in that file; settings such
+// as PORT come from ecosystem.config.js. The shared .env is then loaded
+// without overriding. Dev and production must not share JWT_SECRET: user ids
 // exist in both databases, so a dev token could otherwise work on production.
-export function envFilesFor(nodeEnv: string | undefined, dir = SERVER_DIR): string[] {
-  return nodeEnv === "production" ? [path.join(dir, ".env.production"), path.join(dir, ".env")] : [path.join(dir, ".env")];
+export function envFilesFor(nodeEnv: string | undefined, dir = SERVER_DIR): { path: string; override: boolean }[] {
+  const shared = { path: path.join(dir, ".env"), override: false };
+  return nodeEnv === "production" ? [{ path: path.join(dir, ".env.production"), override: true }, shared] : [shared];
 }
-for (const file of envFilesFor(process.env.NODE_ENV)) dotenv.config({ path: file });
+for (const file of envFilesFor(process.env.NODE_ENV)) dotenv.config(file);
 
 // Paths in settings are relative to backend/server
 const fromServerDir = (p: string) => (path.isAbsolute(p) ? p : path.join(SERVER_DIR, p));
@@ -73,7 +77,10 @@ export const config = {
   isDevelopment: process.env.NODE_ENV !== "production",
   isProduction: process.env.NODE_ENV === "production",
   // SQLite file for incidents; ":memory:" in tests
-  databasePath: process.env.DATABASE_PATH || path.join(__dirname, "..", "..", "data", "enterprise.db"),
+  databasePath:
+    process.env.DATABASE_PATH === ":memory:"
+      ? ":memory:"
+      : fromServerDir(process.env.DATABASE_PATH || path.join("data", "enterprise.db")),
   // Shared secret for machine-to-machine ingest (DeskSOS Desktop backend).
   // Ingest is disabled while unset.
   ingestApiKey: process.env.INGEST_API_KEY || "",

@@ -82,14 +82,45 @@ On Windows, PM2 communicates through the named pipe `\\.\pipe\rpc.sock`. If the 
 
 ### Production deployment
 
-In progress (Phase 2 of the [readiness plan](docs/PRODUCTION-READINESS-PLAN.md)). Available now: the backend can serve the built dashboard itself, so one port serves both the dashboard and the API:
+Production runs alongside development on the same PC, under its own PM2 name, port and database:
+
+| | Development | Production |
+|---|---|---|
+| Address | http://localhost:3000 (Vite) + :5100 (API) | **https://FORD-DC01:5543** (dashboard and API on one port) |
+| PM2 name | `desksos-enterprise-backend` | `desksos-enterprise` |
+| Database | `backend/server/data/enterprise.db` | `backend/server/data/enterprise-prod.db` |
+| Secrets | `backend/server/.env` | `backend/server/.env.production` (its own `JWT_SECRET` and `INGEST_API_KEY`) |
+
+**Start or restart production** from an Administrator **PowerShell 7** window:
 
 ```powershell
-cd client; npm run build; cd ..
-# then start the backend with NODE_ENV=production (or SERVE_CLIENT=true)
+.\start-production.ps1            # build, then (re)start and check health
+.\start-production.ps1 -SkipBuild # restart the existing build
 ```
 
-Still to come: HTTPS, a production start script with restart on boot, a LAN firewall rule, and monitoring. The earlier Docker Compose files were removed because they no longer matched the application.
+The script:
+
+1. checks that PM2 is reachable from the window
+2. creates `.env.production` with fresh secrets if it's missing (never printed)
+3. creates the HTTPS certificate if it's missing, and warns when it's near expiry
+4. builds the backend and dashboard
+5. replaces any previous production instance
+6. starts it with `backend/server/ecosystem.config.js` and saves PM2's process list
+7. waits for `/health` over HTTPS
+
+Running it again is harmless. On the first start of the production database, it shows how to read the one-time admin password from the log.
+
+Other commands: `pm2 status`, `pm2 logs desksos-enterprise`, `pm2 stop desksos-enterprise`.
+
+**Reset a production account:**
+
+```powershell
+cd backend\server
+$env:DATABASE_PATH = 'data\enterprise-prod.db'
+npm run user:reset-password -- admin@desksos.local
+```
+
+Still to come: restart on boot, a LAN firewall rule, log rotation and monitoring (Phase 2 and 3 of the [readiness plan](docs/PRODUCTION-READINESS-PLAN.md)). The earlier Docker Compose files were removed because they no longer matched the application.
 
 ## 🏗️ Architecture
 
