@@ -260,6 +260,9 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 | 2026-10-05 | 1.6 Security headers, rate limits, body cap, configurable CORS | ✅ Verified (on branch) |
 | 2026-10-05 | 1.7 Input validation on every write route | ✅ Verified (on branch) |
 | 2026-10-05 | 1.8 User management for admins, plus server-side recovery | ✅ Verified (on branch) |
+| 2026-10-05 | 1.9 Incident audit trail | ✅ Verified (on branch) |
+| 2026-10-05 | 1.10 Ingest key rotation, proven lossless | ✅ Verified (on branch) |
+| 2026-10-05 | **Phase 1 exit gate** | ✅ Passed (on branch) |
 
 ### 0.3 Enterprise backups capture real data
 
@@ -488,6 +491,47 @@ A task counts as done only once its verification has passed. "Implemented" isn't
   - **Real-browser run, 14/14 checks:** open Users; own row protected; add an operator and see the temporary password; new user forced to set a password and seeing operator features but no Users button; role change; deactivate and reactivate; reset with the old password refused; user back as a viewer; **CLI recovery** temporary password lets the admin sign in. The sign-in flow still passes 13/13.
 - **Correction made during review:** a test named "the last active admin can't be removed" actually passed because of the self-protection rule. Through the API the last-admin guard can't be reached, since the acting admin is always another active admin. The test was renamed to what it really proves, and the guard is documented as a backstop.
 - **Goal impact:** *administrators* can onboard and offboard staff, adjust permissions and recover accounts **without touching the database**. This is the plan's "done when" for task 1.8. *Users* get their own accounts with a password only they know, and leavers lose access the moment they're deactivated.
+
+### 1.9 Incident audit trail
+
+- **Change** (`520995b`):
+  - Append-only `incident_events` table recording **created**, **ingested**, **status_changed** (from → to) and **locked**, with the actor and a timestamp. The actor is the signed-in user, or the integration source for Desktop tickets.
+  - Each event is written **in the same transaction** as its change.
+  - No-op status updates, re-locks by the same holder and ingest retries add nothing.
+  - New `GET /api/incidents/:id/history` for any role.
+  - The dashboard's inspection panel shows the history.
+- **Verification:**
+  - 8 tests: creator recorded, from/to with the user and no-op ignored, lock on holder change only, ingest with the integration actor, retry adds nothing, failed changes leave no event, access rules and 404.
+  - **A forced-failure rollback test:** when the event write fails, the incident isn't saved and the 500 doesn't leak the error. **Removing the transaction wrapper makes this test fail**, so it really guards the guarantee.
+  - The real browser shows "Created by", "Locked by" and "Open → In Progress by" with the user's name (14/14).
+- **Goal impact:** *administrators* and *operators* can see who did what to every incident and when. That gives accountability for *clients'* tickets and evidence for reviews. It meets task 1.9's done criterion.
+- **Follow-up:** user-management actions (user added, role changed, deactivated) aren't in an audit log yet. Consider adding them alongside the logging work in task 2.7.
+
+### 1.10 Ingest key rotation, proven lossless
+
+- **Change** (`f2b44ce`): `rotate-ingest-key.ps1` generates a new key and writes it to **both** `.env` files (Enterprise `INGEST_API_KEY`, Desktop `ENTERPRISE_INGEST_KEY`). It checks both are writable first, verifies they match, keeps their other settings and **never prints the key**. The README documents the procedure, along with account handling and CLI recovery.
+- **Verification** (end to end, throwaway Enterprise and Desktop instances):
+  1. ticket delivered before rotation
+  2. script updates both files to the same new key, keeps other lines, prints nothing secret
+  3. with only Enterprise restarted, a new ticket is refused (401) and **queued, not lost**
+  4. the old key is rejected
+  5. after Desktop restarts, **the queued ticket is delivered automatically** (31 s)
+  6. new tickets flow normally
+- **Goal impact:** *administrators* can replace a possibly exposed credential in one command, without losing *clients'* tickets in the switch. It meets task 1.10's done criterion ("documented and tested once").
+
+### Phase 1 exit gate
+
+**Gate:** automated tests prove no `/api` route or socket event works without a valid token and role, and an independent check finds no open endpoints.
+
+- **Independent check** (`tests/exit-gate.test.ts`): **discovers every route registered in Express** (21), without relying on a hand-written list, and calls each one anonymously.
+  - Only a 4-route allowlist may answer without sign-in, each with a stated reason: `GET /` (info), `GET /health`, `POST /api/auth/login` (rate limited) and `POST /api/auth/logout` (no-op).
+  - Every other route returns 401. That includes ingest, which returns 401 without its key.
+  - The allowlist must match real routes, so a typo can't hide anything.
+  - **Mutation check:** adding a hidden unprotected `GET /api/debug/dump` made the gate fail at once.
+- **Roles:** the access and role tests show viewers get 403 on every write, and non-admins get 403 on user management.
+- **Socket:** connections without a valid token, with a forged token or with a pending password change are refused, and identity can't be spoofed.
+- **Totals:** backend **140/140** tests; real-browser flows **14/14** (sign-in, history) and **14/14** (user management and recovery); production dependency audit 0.
+- **Result: ✅ passed.** Phase 1's code is complete on `feat/phase1-secure-enterprise`. Remaining step: PR to `main` with CI, then owner review and merge.
 
 ### Correction (2026-10-05)
 
