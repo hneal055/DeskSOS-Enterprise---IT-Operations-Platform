@@ -153,6 +153,10 @@ Copy `backend/server/.env.example` to `backend/server/.env`. That file is ignore
 | `RATE_LIMIT_API` / `_LOGIN` / `_INGEST` | Requests per IP per 15 minutes (sign-in: failed attempts per IP + email) | `600` / `10` / `2000` |
 | `SERVE_CLIENT` | Serve the built dashboard (`client/build`) from this server | `true` in production, otherwise `false` |
 | `CLIENT_BUILD_PATH` | Where the built dashboard is | `client/build` |
+| `TLS_CERT_PATH` / `TLS_KEY_PATH` | HTTPS certificate and key (PEM, relative to `backend/server`). Both or neither; **required in production** | unset (HTTP) |
+| `ALLOW_HTTP_IN_PRODUCTION` | `true` only if a TLS proxy sits in front of the server | unset |
+
+In production (`NODE_ENV=production`), `backend/server/.env.production` is loaded first and wins over `.env`. Production must have its **own** `JWT_SECRET` (and ingest key), so tokens from the development server don't work on production.
 
 > If a Windows user environment variable named `JWT_SECRET` exists, it overrides `.env`. Remove it (or start from a terminal that doesn't have it), or the server may refuse to start.
 
@@ -186,6 +190,28 @@ This takes an online backup of the SQLite database (safe while the server runs),
   ```
 
   This prints a temporary password, reactivates the account if needed, and ends that account's sessions.
+
+## 🔒 HTTPS
+
+Certificates come from this PC's [mkcert](https://github.com/FiloSottile/mkcert) certificate authority, the same one DeskSOS Desktop uses:
+
+```powershell
+pwsh backend\server\scripts\gen-cert.ps1
+```
+
+This creates `backend\server\certs\server.crt` and `server.key` for `localhost`, `127.0.0.1`, the computer name and its LAN address (all ignored by git), plus `desksos-ca.crt`, the authority's **public** certificate. Browsers on this PC trust the site straight away.
+
+**Each other PC that opens the dashboard must trust the authority once.** Without a Windows domain there's no group policy to do it automatically. On each PC, in an Administrator PowerShell window:
+
+```powershell
+Import-Certificate -FilePath \\FORD-DC01\path\to\desksos-ca.crt -CertStoreLocation Cert:\LocalMachine\Root
+```
+
+Chrome and Edge then trust it. Firefox uses its own store: in `about:config`, set `security.enterprise_roots.enabled` to `true`.
+
+Keep mkcert's private key (`rootCA-key.pem` in `mkcert -CAROOT`) on this PC only. Anyone holding it can create certificates those PCs would trust.
+
+**Node.js programs** that call the server over HTTPS, such as the Desktop bridge, don't use the Windows certificate store. Point them at the authority with `NODE_EXTRA_CA_CERTS=<path>\desksos-ca.crt`.
 
 ## 🔑 Rotating the ingest key
 

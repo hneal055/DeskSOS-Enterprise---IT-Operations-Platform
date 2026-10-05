@@ -1,12 +1,26 @@
 import dotenv from "dotenv";
 import path from "path";
 
+// backend/server, from src/config or dist/config
+const SERVER_DIR = path.resolve(__dirname, "..", "..");
+
 // Load .env before reading process.env below; config is imported before the
 // index.ts body runs, so loading it there was too late.
-// Resolve backend/server/.env from this file (src/config or dist/config) rather
-// than the process cwd: PM2 launched from the repo root otherwise picks up the
-// unrelated root .env (PORT=8000) and crashes with EADDRINUSE.
-dotenv.config({ path: path.resolve(__dirname, "..", "..", ".env") });
+// Resolve backend/server/.env from this file rather than the process cwd: PM2
+// launched from the repo root otherwise picks up the unrelated root .env
+// (PORT=8000) and crashes with EADDRINUSE.
+//
+// In production, backend/server/.env.production is loaded first. dotenv never
+// overrides a value that's already set, so production's own secrets win over
+// the shared .env. Dev and production must not share JWT_SECRET: user ids
+// exist in both databases, so a dev token could otherwise work on production.
+export function envFilesFor(nodeEnv: string | undefined, dir = SERVER_DIR): string[] {
+  return nodeEnv === "production" ? [path.join(dir, ".env.production"), path.join(dir, ".env")] : [path.join(dir, ".env")];
+}
+for (const file of envFilesFor(process.env.NODE_ENV)) dotenv.config({ path: file });
+
+// Paths in settings are relative to backend/server
+const fromServerDir = (p: string) => (path.isAbsolute(p) ? p : path.join(SERVER_DIR, p));
 
 // Placeholder values that have appeared in this repo's examples and docs.
 // Anyone can read them, so tokens signed with them could be forged.
@@ -27,8 +41,26 @@ export function checkJwtSecret(secret: string | undefined): string | null {
 const jwtSecretError = checkJwtSecret(process.env.JWT_SECRET);
 if (jwtSecretError) {
   console.error(`[DeskSOS] FATAL: ${jwtSecretError}.`);
-  console.error(`  Set it in backend/server/.env. Generate one with:`);
+  console.error(`  Set it in backend/server/.env${process.env.NODE_ENV === "production" ? ".production" : ""}. Generate one with:`);
   console.error(`  node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`);
+  process.exit(1);
+}
+
+// HTTPS: both TLS_CERT_PATH and TLS_KEY_PATH, or neither. Production requires
+// HTTPS unless ALLOW_HTTP_IN_PRODUCTION=true (e.g. behind a TLS proxy).
+export function checkTls(env: NodeJS.ProcessEnv): string | null {
+  const cert = env.TLS_CERT_PATH?.trim();
+  const key = env.TLS_KEY_PATH?.trim();
+  if (Boolean(cert) !== Boolean(key)) return "set both TLS_CERT_PATH and TLS_KEY_PATH, or neither";
+  if (!cert && env.NODE_ENV === "production" && env.ALLOW_HTTP_IN_PRODUCTION !== "true") {
+    return "production requires HTTPS: set TLS_CERT_PATH and TLS_KEY_PATH (see scripts/gen-cert.ps1)";
+  }
+  return null;
+}
+
+const tlsError = checkTls(process.env);
+if (tlsError) {
+  console.error(`[DeskSOS] FATAL: ${tlsError}.`);
   process.exit(1);
 }
 
@@ -67,8 +99,10 @@ export const config = {
   serveClient: bool(process.env.SERVE_CLIENT, process.env.NODE_ENV === "production"),
   // From src/config or dist/config, four levels up is the repo root
   clientBuildPath: process.env.CLIENT_BUILD_PATH || path.join(__dirname, "..", "..", "..", "..", "client", "build"),
-  // HTTPS is configured in task 2.3; until then pages are plain HTTP
-  tlsEnabled: false,
+  // HTTPS certificate and key (PEM), relative to backend/server
+  tlsCertPath: process.env.TLS_CERT_PATH?.trim() ? fromServerDir(process.env.TLS_CERT_PATH.trim()) : "",
+  tlsKeyPath: process.env.TLS_KEY_PATH?.trim() ? fromServerDir(process.env.TLS_KEY_PATH.trim()) : "",
+  tlsEnabled: Boolean(process.env.TLS_CERT_PATH?.trim() && process.env.TLS_KEY_PATH?.trim()),
 };
 
 function positiveInt(raw: string | undefined, fallback: number): number {

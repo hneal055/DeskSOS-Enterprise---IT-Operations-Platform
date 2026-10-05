@@ -1,6 +1,8 @@
 import express, { Express } from "express";
 import cors from "cors";
+import fs from "fs";
 import { createServer } from "http";
+import { createServer as createHttpsServer } from "https";
 import { Server as SocketIOServer } from "socket.io";
 import config from "./config"; // loads .env
 import dashboardRoutes from "./routes/dashboard";
@@ -20,8 +22,17 @@ import { serveDashboard } from "./static";
 // Initialize Express
 const app: Express = express();
 
-// Create HTTP server
-const httpServer = createServer(app);
+// HTTP or HTTPS server (same Express app and Socket.IO either way)
+function readTls(): { cert: Buffer; key: Buffer } {
+  try {
+    return { cert: fs.readFileSync(config.tlsCertPath), key: fs.readFileSync(config.tlsKeyPath) };
+  } catch (err) {
+    console.error(`[DeskSOS] FATAL: can't read the TLS certificate or key: ${(err as Error).message}`);
+    console.error("  Generate them with: pwsh backend/server/scripts/gen-cert.ps1");
+    process.exit(1);
+  }
+}
+const httpServer = config.tlsEnabled ? createHttpsServer(readTls(), app) : createServer(app);
 
 // Socket.IO, restricted to the configured browser origins
 const io = new SocketIOServer(httpServer, {
@@ -156,9 +167,16 @@ if (require.main === module) {
   }
 
   const PORT = config.port;
+  httpServer.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      console.error(`[DeskSOS] FATAL: port ${PORT} is already in use.`);
+      process.exit(1);
+    }
+    throw err;
+  });
   httpServer.listen(PORT, () => {
     console.log(`=====================================`);
-    console.log(`DeskSOS Backend is Live and Synced on port ${PORT}!`);
+    console.log(`DeskSOS Backend is Live and Synced on port ${PORT} (${config.tlsEnabled ? "HTTPS" : "HTTP"}, ${config.nodeEnv})`);
     console.log(`=====================================`);
   });
 }
