@@ -61,11 +61,24 @@ export const config = {
     // The Desktop bridge can send a backlog after an outage (20 per 15 s)
     ingest: positiveInt(process.env.RATE_LIMIT_INGEST, 2000),
   },
+  // Serve the built dashboard (client/build) from this server, so production
+  // needs one port and no dev server. On by default in production; in
+  // development the Vite dev server on :3000 is normally used instead.
+  serveClient: bool(process.env.SERVE_CLIENT, process.env.NODE_ENV === "production"),
+  // From src/config or dist/config, four levels up is the repo root
+  clientBuildPath: process.env.CLIENT_BUILD_PATH || path.join(__dirname, "..", "..", "..", "..", "client", "build"),
+  // HTTPS is configured in task 2.3; until then pages are plain HTTP
+  tlsEnabled: false,
 };
 
 function positiveInt(raw: string | undefined, fallback: number): number {
   const n = Number(raw);
   return Number.isInteger(n) && n > 0 ? n : fallback;
+}
+
+function bool(raw: string | undefined, fallback: boolean): boolean {
+  if (raw === undefined || raw.trim() === "") return fallback;
+  return ["1", "true", "yes", "on"].includes(raw.trim().toLowerCase());
 }
 
 export default config;

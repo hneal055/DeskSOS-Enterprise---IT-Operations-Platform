@@ -82,7 +82,14 @@ On Windows, PM2 communicates through the named pipe `\\.\pipe\rpc.sock`. If the 
 
 ### Production deployment
 
-Not supported yet. Production setup (HTTPS, a production build of the dashboard served by the backend, restart on boot, monitoring) is Phase 2 of the [readiness plan](docs/PRODUCTION-READINESS-PLAN.md). The earlier Docker Compose files were removed because they no longer matched the application.
+In progress (Phase 2 of the [readiness plan](docs/PRODUCTION-READINESS-PLAN.md)). Available now: the backend can serve the built dashboard itself, so one port serves both the dashboard and the API:
+
+```powershell
+cd client; npm run build; cd ..
+# then start the backend with NODE_ENV=production (or SERVE_CLIENT=true)
+```
+
+Still to come: HTTPS, a production start script with restart on boot, a LAN firewall rule, and monitoring. The earlier Docker Compose files were removed because they no longer matched the application.
 
 ## 🏗️ Architecture
 
@@ -144,6 +151,8 @@ Copy `backend/server/.env.example` to `backend/server/.env`. That file is ignore
 | `INGEST_API_KEY` | Shared key DeskSOS Desktop sends as `X-API-Key`. Ingest is disabled while unset | unset |
 | `CORS_ORIGINS` | Browser origins allowed to use the API and socket (comma-separated) | `http://localhost:3000,http://localhost:3001` |
 | `RATE_LIMIT_API` / `_LOGIN` / `_INGEST` | Requests per IP per 15 minutes (sign-in: failed attempts per IP + email) | `600` / `10` / `2000` |
+| `SERVE_CLIENT` | Serve the built dashboard (`client/build`) from this server | `true` in production, otherwise `false` |
+| `CLIENT_BUILD_PATH` | Where the built dashboard is | `client/build` |
 
 > If a Windows user environment variable named `JWT_SECRET` exists, it overrides `.env`. Remove it (or start from a terminal that doesn't have it), or the server may refuse to start.
 

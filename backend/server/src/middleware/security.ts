@@ -3,11 +3,22 @@ import helmet from "helmet";
 import { rateLimit } from "express-rate-limit";
 import config from "../config";
 
-// Standard security headers (no X-Powered-By, nosniff, frame denial, HSTS,
-// referrer policy, and a strict CSP). The API only returns JSON today; when
-// the backend starts serving the dashboard (plan task 2.2) the CSP must be
-// widened for its scripts and styles.
-export const securityHeaders = helmet();
+// Standard security headers (no X-Powered-By, nosniff, frame protection,
+// HSTS, referrer policy, and a strict CSP). helmet's default CSP already fits
+// the built dashboard: scripts and styles come from this origin, Google Fonts
+// from https:, and the live socket from 'self'. The Vite build has no inline
+// scripts, so script-src stays 'self'.
+//
+// upgrade-insecure-requests makes browsers fetch even this server's own files
+// over HTTPS, which breaks a plain-HTTP deployment, so it's only sent once
+// HTTPS is enabled (plan task 2.3).
+export const securityHeaders = helmet({
+  contentSecurityPolicy: {
+    directives: {
+      "upgrade-insecure-requests": config.tlsEnabled ? [] : null,
+    },
+  },
+});
 
 const common = {
   windowMs: config.rateLimit.windowMs,

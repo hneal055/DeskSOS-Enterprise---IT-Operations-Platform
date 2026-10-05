@@ -15,6 +15,7 @@ import { pingDatabase } from "./db";
 import { ensureInitialAdmin } from "./users";
 import { requireAuth, requireRole } from "./middleware/auth";
 import { securityHeaders, apiLimiter, loginLimiter, ingestLimiter } from "./middleware/security";
+import { serveDashboard } from "./static";
 
 // Initialize Express
 const app: Express = express();
@@ -83,8 +84,8 @@ app.get("/health", (req, res) => {
   }
 });
 
-// Root API documentation
-app.get("/", (req, res) => {
+// API information (no data). At "/" too when the dashboard isn't served here.
+const apiInfo = (_req: express.Request, res: express.Response) => {
   res.json({
     message: "DeskSOS Enterprise API Server",
     version: "1.0.0",
@@ -95,7 +96,14 @@ app.get("/", (req, res) => {
       dashboard: "GET /api/dashboard",
     },
   });
-});
+};
+app.get("/api", apiInfo);
+
+if (config.serveClient) {
+  serveDashboard(app, config.clientBuildPath);
+} else {
+  app.get("/", apiInfo);
+}
 
 // Initialize Socket.IO event handlers
 initializeSocket(io);
@@ -106,7 +114,7 @@ app.use((req, res) => {
     error: "Not Found",
     path: req.path,
     method: req.method,
-    message: "Endpoint does not exist. See GET / for available endpoints.",
+    message: "Endpoint does not exist. See GET /api for available endpoints.",
   });
 });
 
