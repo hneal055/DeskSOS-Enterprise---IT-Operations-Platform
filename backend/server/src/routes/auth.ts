@@ -4,6 +4,7 @@ import { requireAuth, signToken } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { loginBody, changePasswordBody } from "../validation";
 import { disconnectUser } from "../services/socket";
+import { audit } from "../logger";
 
 const router = Router();
 
@@ -16,7 +17,11 @@ router.post("/login", validate({ body: loginBody }), (req: Request, res: Respons
   const { email, password } = req.body;
   const user = authenticate(email, password);
   // Same response for unknown email, wrong password and deactivated account
-  if (!user) return res.status(401).json({ error: "Invalid email or password" });
+  if (!user) {
+    audit("auth.login_failed", { email, ip: req.ip }, "warn");
+    return res.status(401).json({ error: "Invalid email or password" });
+  }
+  audit("auth.login", { user: user.email, role: user.role, ip: req.ip });
   res.json({ token: signToken(user), user: publicUser(user) });
 });
 
@@ -41,6 +46,7 @@ router.post(
   (req: Request, res: Response) => {
     const { currentPassword, newPassword } = req.body;
     if (!verifyPasswordFor(req.user!.id, currentPassword)) {
+      audit("auth.password_change_failed", { user: req.user!.email, ip: req.ip }, "warn");
       return res.status(401).json({ error: "Current password is incorrect" });
     }
     const weak = checkPasswordStrength(newPassword);
@@ -49,6 +55,7 @@ router.post(
       return res.status(400).json({ error: "New password must be different from the current one" });
     }
     const user = setPassword(req.user!.id, newPassword);
+    audit("auth.password_changed", { user: user.email, ip: req.ip });
     // Close this user's open live connections: other tabs or devices still
     // hold the old token. Done after the response so this tab can store its
     // new token first; it then reconnects with it.

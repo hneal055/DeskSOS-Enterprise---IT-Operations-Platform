@@ -298,11 +298,28 @@ The backend suite covers sign-in, roles, an access matrix over every protected r
 | Strong `JWT_SECRET` required; 8-hour tokens revoked on password, role or status change | ✅ |
 | Security headers, rate limiting (incl. sign-in brute force), 100 KB body cap | ✅ |
 | Input validation on every write route | ✅ |
-| Incident audit trail | ✅ |
+| Incident audit trail; security audit log (sign-ins, password changes, user management) | ✅ |
 | CORS restricted to configured origins | ✅ |
-| Secrets kept out of git and backups | ✅ |
-| HTTPS | ❌ Plan task 2.3 |
-| Production deployment (served build, restart on boot) | ❌ Plan Phase 2 |
+| Secrets kept out of git and backups; production has its own secrets | ✅ |
+| HTTPS (required in production), HSTS, strict Content-Security-Policy | ✅ |
+| Production deployment: served build, start script | ✅ |
+| Restart on boot, LAN-only firewall rule | ❌ Plan tasks 2.5 and 2.6 (admin steps) |
+
+## 📜 Logs
+
+The server logs through winston to its standard output; PM2 writes that to its log files and the `pm2-logrotate` module rotates them daily, keeping 14 days, compressed.
+
+- **Production:** one JSON object per line at `info` level and above. Entries have a `type`:
+  - `request`: method, path (no query string), status, duration, user, IP
+  - `audit`: `auth.login`, `auth.login_failed`, `auth.password_changed`, `user.created`, `user.updated` (with from → to), `user.password_reset`
+  - `startup`
+- **Development:** short readable lines at `debug` level.
+- **Never logged:** passwords, temporary passwords, tokens, API keys.
+
+```powershell
+pm2 logs desksos-enterprise                      # live
+Select-String backend\server\logs\pm2-out*.log -Pattern '"type":"audit"'   # security events
+```
 
 ## 🤝 Contributing
 

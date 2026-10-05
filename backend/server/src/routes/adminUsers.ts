@@ -6,6 +6,7 @@ import {
 import { validate } from "../middleware/validate";
 import { createUserBody, updateUserBody, userIdParams } from "../validation";
 import { disconnectUser } from "../services/socket";
+import { audit } from "../logger";
 
 // Mounted at /api/admin/users behind requireAuth + requireRole("admin").
 const router = Router();
@@ -30,6 +31,7 @@ router.post("/", validate({ body: createUserBody }), (req: Request, res: Respons
   if (findUserByEmail(email)) return res.status(409).json({ error: "A user with this email already exists" });
   const temporaryPassword = generatePassword();
   const user = createUser({ email, name, role, password: temporaryPassword, mustChangePassword: true });
+  audit("user.created", { by: req.user!.email, target: user.email, role: user.role });
   res.status(201).json({ user: adminView(user), temporaryPassword });
 });
 
@@ -53,6 +55,12 @@ router.patch("/:id", validate({ params: userIdParams, body: updateUserBody }), (
   }
 
   const updated = updateUser(id, req.body);
+  // Record only what actually changed, as from -> to
+  const changes: Record<string, { from: unknown; to: unknown }> = {};
+  for (const k of ["name", "role", "active"] as const) {
+    if (updated[k] !== target[k]) changes[k] = { from: target[k], to: updated[k] };
+  }
+  if (Object.keys(changes).length) audit("user.updated", { by: req.user!.email, target: updated.email, changes });
   // A role change or deactivation revoked the user's tokens; close their open
   // live connections too, so they stop receiving events right away
   if (updated.tokenVersion !== target.tokenVersion) disconnectUser(id);
@@ -71,6 +79,7 @@ router.post("/:id/reset-password", validate({ params: userIdParams }), (req: Req
   }
   const temporaryPassword = resetPassword(id);
   disconnectUser(id);
+  audit("user.password_reset", { by: req.user!.email, target: getUser(id)!.email });
   res.json({ user: adminView(getUser(id)!), temporaryPassword });
 });
 

@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import express, { Express } from "express";
+import { logger } from "./logger";
 
 // Serves the built dashboard (Vite output) from this server.
 //  - /assets/* are content-hashed by Vite, so they're cached for a year
@@ -10,7 +11,7 @@ import express, { Express } from "express";
 export function serveDashboard(app: Express, buildPath: string): void {
   const indexFile = path.join(buildPath, "index.html");
   if (!fs.existsSync(indexFile)) {
-    console.error(`[static] SERVE_CLIENT is on but ${indexFile} doesn't exist. Run "npm run build" in client/.`);
+    logger.error(`SERVE_CLIENT is on but ${indexFile} doesn't exist. Run "npm run build" in client/.`, { type: "startup" });
     return;
   }
 
@@ -26,5 +27,5 @@ export function serveDashboard(app: Express, buildPath: string): void {
   };
   // Not /api/..., /socket.io/... or /health
   app.get(/^\/(?!api(?:\/|$)|socket\.io(?:\/|$)|health$).*/, sendIndex);
-  console.log(`[static] Serving the dashboard from ${buildPath}`);
+  logger.info(`Serving the dashboard from ${buildPath}`, { type: "startup" });
 }

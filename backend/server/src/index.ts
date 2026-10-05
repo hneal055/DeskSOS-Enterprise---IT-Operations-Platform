@@ -18,6 +18,8 @@ import { ensureInitialAdmin } from "./users";
 import { requireAuth, requireRole } from "./middleware/auth";
 import { securityHeaders, apiLimiter, loginLimiter, ingestLimiter } from "./middleware/security";
 import { serveDashboard } from "./static";
+import { logger } from "./logger";
+import { requestLogger } from "./middleware/requestLog";
 
 // Initialize Express
 const app: Express = express();
@@ -44,7 +46,9 @@ const io = new SocketIOServer(httpServer, {
 });
 app.set('io', io);
 
-// Security headers first, so they're on every response (including errors)
+// Request log first, so every response is logged (including body-parser
+// errors such as 413), then security headers on every response
+app.use(requestLogger);
 app.use(securityHeaders);
 
 app.use(
@@ -59,12 +63,6 @@ app.use(
 // ticket (description up to 20,000 characters), well under 100 KB.
 app.use(express.json({ limit: "100kb" }));
 app.use(express.urlencoded({ extended: true, limit: "100kb" }));
-
-// Request logging middleware
-app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} ${req.method} ${req.path}`);
-  next();
-});
 
 // API Routes
 // Sign-in is enforced where each router is mounted, so no route under these
@@ -90,7 +88,7 @@ app.get("/health", (req, res) => {
     pingDatabase();
     res.json({ status: "ok", timestamp: new Date().toISOString(), services: { database: "connected" } });
   } catch (err) {
-    console.error("[health] Database check failed:", (err as Error).message);
+    logger.error("Health check: database unavailable", { error: (err as Error).message });
     res.status(503).json({ status: "error", timestamp: new Date().toISOString(), services: { database: "unavailable" } });
   }
 });
@@ -145,7 +143,7 @@ app.use(
     if (err.type === "entity.too.large") {
       return res.status(413).json({ error: "Request body is too large", status: 413 });
     }
-    console.error("Error:", err);
+    logger.error("Unhandled request error", { method: req.method, path: req.path, status, error: err });
     // Never send internal error details to the client
     res.status(status).json({
       error: status >= 500 ? "Internal Server Error" : err.message || "Request failed",
@@ -175,9 +173,9 @@ if (require.main === module) {
     throw err;
   });
   httpServer.listen(PORT, () => {
-    console.log(`=====================================`);
-    console.log(`DeskSOS Backend is Live and Synced on port ${PORT} (${config.tlsEnabled ? "HTTPS" : "HTTP"}, ${config.nodeEnv})`);
-    console.log(`=====================================`);
+    logger.info(`DeskSOS Backend is Live and Synced on port ${PORT} (${config.tlsEnabled ? "HTTPS" : "HTTP"}, ${config.nodeEnv})`, {
+      type: "startup", port: PORT, https: config.tlsEnabled, env: config.nodeEnv,
+    });
   });
 }
 

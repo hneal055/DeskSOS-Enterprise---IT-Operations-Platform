@@ -46,6 +46,9 @@ module.exports = {
         TLS_CERT_PATH: "./certs/server.crt",
         TLS_KEY_PATH: "./certs/server.key",
         SERVE_CLIENT: "true",
+        // The shared .env sets debug for development; production logs info
+        // and above (no per-request lines for health checks and static files)
+        LOG_LEVEL: env.DESKSOS_PROD_LOG_LEVEL || "info",
         // The dashboard is served from the same origin; listed for clarity
         CORS_ORIGINS: env.DESKSOS_PROD_ORIGINS || "https://FORD-DC01:5543,https://localhost:5543",
       },
