@@ -271,6 +271,8 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 | 2026-10-05 | 2.4 Production PM2 config and start script | ✅ Verified (on branch, with test overrides); first real production start is an admin step |
 | 2026-10-05 | 2.7 Structured logs and security audit log | ✅ Verified (on branch) |
 | 2026-10-05 | 2.8 Desktop production → Enterprise production bridge | ✅ Verified end to end (Enterprise branch + Desktop PR #7); key pairing is an admin step |
+| 2026-10-05 | 2.5 and 2.6 Start on boot, firewall, backup and monitor tasks | ✅ Scripted and verified (on branch) |
+| 2026-10-05 | **Phase 2 merged; production running on FORD-DC01** | ✅ Verified (HTTPS, sign-in enforced, admin password changed, backup and monitor tasks result 0, firewall LAN-only); reboot test pending |
 
 ### 0.3 Enterprise backups capture real data
 
@@ -696,6 +698,28 @@ Each finding was checked against the code before acting. All 8 were valid. Fixed
     - a certificate name mismatch counts as down
 - **Admin step remaining:** after merging, and after `start-production.ps1` has run once, run `.\register-production-tasks.ps1` as Administrator. Start the backup and monitor tasks and check that both show `LastTaskResult` 0, then do a reboot test. Set `ALERT_TEAMS_WEBHOOK_URL` once a webhook exists.
 - **Goal impact:** production survives reboots without anyone signing in, is reachable only from the office LAN, is backed up nightly, and *administrators* hear about an outage within 5 minutes instead of from *users*. These are the "done when" conditions for 2.5 and 2.6, met once the admin step is done.
+
+### Phase 2 merged; production running on FORD-DC01
+
+- **Change:**
+  - The owner merged PR #12 (`9267f8b`). Its server CI job had been cancelled on every push because GitHub never assigned it a runner (no runner name, no steps; the docs-only commit `c5a8ff1` on `main` hit the same). A re-run passed in 28 seconds, and the 170 server tests also passed locally.
+  - The owner ran `start-production.ps1` from an Administrator PowerShell 7 window. It generated `.env.production` (new `JWT_SECRET` and `INGEST_API_KEY`) and the HTTPS certificate (localhost, 127.0.0.1, FORD-DC01, 192.168.12.196; expires 2029-01-05).
+  - **The first build failed** with `'vite' is not recognized`: the script only ran `npm ci` when `node_modules` was missing, so the old Create React App packages stayed after the pull. The owner ran `npm ci` in `client` (after `stop-dev.ps1`, since the old dev server held those files) and the second run succeeded. Fix: the script now reinstalls when `package-lock.json` is newer than the last install (`node_modules\.package-lock.json`); branch `fix/start-production-stale-deps`.
+  - The owner signed in to production with the one-time password and set their own, then ran `register-production-tasks.ps1`.
+  - **The firewall rule alone wasn't enough.** Four pre-existing "Node.js JavaScript Runtime" rules (TCP and UDP for two `node.exe` paths, from Windows' Allow prompt) allowed Node on every port from any address, on the Private and Public profiles, which overrides a scoped rule. This PC also has a public IPv6 address. The owner limited all four to `LocalSubnet` with edge traversal blocked (`Set-NetFirewallRule -EdgeTraversalPolicy Block -RemoteAddress LocalSubnet`; the rules' "Defer to user" setting had to be turned off for the address limit to apply).
+- **Verification** (live system):
+  - `https://FORD-DC01:5543/health` and `https://192.168.12.196:5543/health` return ok, with the certificate trusted on this PC. Windows `curl.exe` needs `--ssl-no-revoke`, because the local CA has no revocation list; browsers and the PowerShell monitor are unaffected.
+  - An anonymous `GET /api/incidents` returns **401**. `/` and `/users` return the Vite dashboard; an unknown `/assets/*.js` returns 404. HSTS and the Content-Security-Policy are present.
+  - The audit log shows `auth.login` and `auth.password_changed` for the production admin.
+  - **Daily Backup** and **Health Monitor** tasks: `LastTaskResult` 0. The backup `backups\production\enterprise-2026-10-05T21-33-32.db` passed its integrity check. The monitor recorded the service as up. **Startup** shows `267011` (not run yet; it runs at boot).
+  - Firewall: the four Node.js rules show `remote=LocalSubnet`, `edge=Block`; production still answers afterwards.
+- **Remaining:**
+  - **Reboot test** (Phase 2 exit gate, plus Phase 0's boot task): restart, don't sign in for 5 minutes, then check that both production services are up.
+  - Alert channel: set `ALERT_TEAMS_WEBHOOK_URL` or `ALERT_SMTP_*`. Until then, alerts are only written to `monitor.log`.
+  - Trust the CA on the other LAN PCs (task 2.3), and pair Desktop production with the production ingest key (task 2.8).
+  - DeskSOS Desktop's own firewall rule ("DeskSOS Backend", TCP 5443) still allows any address; limit it to the LAN as well (decision D3).
+  - If Windows shows the Node.js network prompt again (for example after a Node update), Allow creates a new unrestricted rule; limit it the same way.
+- **Goal impact:** Enterprise production is live for *users* on the office LAN over HTTPS, with real accounts and a changed admin password. *Administrators* get nightly backups and a health check without anyone signed in, and the dev and production services are no longer reachable from outside the LAN. Moves forward go-live items "HTTPS ... firewall limited to the LAN", "default and first-run passwords changed" and "daily backups running"; "services come back after a reboot" waits on the reboot test.
 
 ### Correction (2026-10-05)
 
