@@ -5,6 +5,7 @@ This is for whoever runs DeskSOS Enterprise on **FORD-DC01**. It covers daily ch
 Related documents:
 
 - [README](../README.md): developer setup and configuration reference
+- [User guide](USER-GUIDE.md): for operators and viewers. Give this to dashboard users
 - [API reference](API_REFERENCE.md)
 - [readiness plan](PRODUCTION-READINESS-PLAN.md): history and open tasks
 - **DeskSOS Desktop** has its own runbook: `C:\Projects\DESKSOS-Desktop\docs\OPERATIONS.md`
@@ -368,7 +369,7 @@ The database, backups, certificates and secrets stay on disk until you delete th
 | "Invalid email or password" for the admin | Using the dev password, or `.com` instead of `.local` | Production is `admin@desksos.local`; §6.5 if it's lost |
 | "Too many failed sign-in attempts" | 10 failures for that email from that PC within 15 minutes | Wait 15 minutes |
 | Desktop tickets don't arrive | The dev Desktop app is in use, the ingest key isn't paired, or Enterprise is stopped | Use the release Desktop app; §7.2; check `pm2 logs desksos-enterprise` for `POST /api/ingest/incidents` |
-| A Critical ticket arrives but there's no sound | Tactical Audio isn't armed (it resets on every page refresh) | Click **Tactical Audio** in the header after each refresh |
+| A Critical ticket arrives but there's no sound | Audio isn't armed (it resets on every page reload) | Click **🔇 Click to Arm Audio** in the header after each reload; it changes to **🔊 Tactical Audio: Armed**. See the [user guide](USER-GUIDE.md) §4 |
 | `curl.exe` gives an SSL error with a trusted certificate | Windows curl checks revocation, and the local CA has none | Add `--ssl-no-revoke`, or use `Invoke-RestMethod` |
 | The server refuses to start: `JWT_SECRET` | The secret is missing, weak, or a placeholder | Check `.env.production`. Remove any Windows user variable named `JWT_SECRET` |
 | An email alert failed | Wrong SMTP settings or credentials | `monitor.log` shows the reason; §10 |

@@ -82,7 +82,7 @@ On Windows, PM2 communicates through the named pipe `\\.\pipe\rpc.sock`. If the 
 
 ### Production deployment
 
-> **Running production day to day?** Use the runbook, [docs/OPERATIONS.md](docs/OPERATIONS.md). It covers daily checks, upgrades and rollback, backup and restore (with a restore drill), accounts, secrets, certificates and troubleshooting. This section is the setup reference.
+> **Running production day to day?** Use the runbook, [docs/OPERATIONS.md](docs/OPERATIONS.md). It covers daily checks, upgrades and rollback, backup and restore (with a restore drill), accounts, secrets, certificates and troubleshooting. This section is the setup reference. **Dashboard users** (operators and viewers): see the [user guide](docs/USER-GUIDE.md).
 
 Production runs alongside development on the same PC, under its own PM2 name, port and database:
 
