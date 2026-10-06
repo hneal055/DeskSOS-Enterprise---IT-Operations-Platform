@@ -30,7 +30,7 @@ There are two ways to authenticate:
 - They stop working **immediately** when the user's password is changed or reset, their role changes, or they're deactivated. Each token carries the user's token version, and the server checks it on every request.
 - Logout is client-side: discard the token. `POST /api/auth/logout` exists for symmetry and returns 204.
 
-**First sign-in.** New and reset accounts have a temporary password, and `mustChangePassword: true`. Until the password is changed, every endpoint returns `403 { "error": "Password change required", "code": "PASSWORD_CHANGE_REQUIRED" }`, except `GET /api/auth/me` and `POST /api/auth/change-password`.
+**First sign-in.** New and reset accounts have a temporary password, and `mustChangePassword: true`. Until the password is changed, every other endpoint that needs a Bearer token returns `403 { "error": "Password change required", "code": "PASSWORD_CHANGE_REQUIRED" }`, except `GET /api/auth/me` and `POST /api/auth/change-password`. Public endpoints (`/health`, `/api/auth/login`) and API-key ingest aren't affected.
 
 ### Roles
 

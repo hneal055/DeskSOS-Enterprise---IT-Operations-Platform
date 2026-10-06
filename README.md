@@ -104,7 +104,7 @@ powercfg /change hibernate-timeout-ac 0
 Get-NetFirewallRule -DisplayName 'Node.js JavaScript Runtime' | Set-NetFirewallRule -EdgeTraversalPolicy Block -RemoteAddress LocalSubnet
 ```
 
-The production scripts need **PowerShell 7**. From a Windows PowerShell 5.1 window, run them through it, e.g. `& "C:\Program Files\PowerShell\pwsh.exe" -NoProfile -File C:\Projects\DESKSOS\start-production.ps1 -SkipBuild`.
+The production scripts need **PowerShell 7**. From a Windows PowerShell 5.1 window, run them through it, e.g. `& "C:\Program Files\PowerShell\7\pwsh.exe" -NoProfile -File C:\Projects\DESKSOS\start-production.ps1 -SkipBuild`.
 
 **Start or restart production** from an Administrator **PowerShell 7** window:
 

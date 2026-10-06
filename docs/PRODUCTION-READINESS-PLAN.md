@@ -741,7 +741,7 @@ Each finding was checked against the code before acting. All 8 were valid. Fixed
   - Both products were unreachable from the LAN while it slept.
   - **Fix:** `powercfg /change standby-timeout-ac 0` and `powercfg /change hibernate-timeout-ac 0`. Verified: both AC settings read `0x0`. The screen can still turn off.
 - **Why the first test ticket didn't arrive:**
-  - It was sent from the **development** Desktop app (`tauri-app\src-tauri	arget\debug\desksos.exe`), which talks to Desktop dev (`localhost:5000`). Desktop dev forwards to Enterprise dev (`:5100`), which was stopped.
+  - It was sent from the **development** Desktop app (`tauri-app\src-tauri\target\debug\desksos.exe`), which talks to Desktop dev (`localhost:5000`). Desktop dev forwards to Enterprise dev (`:5100`), which was stopped.
   - Those tickets sit in the dev outbox as pending (`ECONNREFUSED`) and are delivered when Enterprise dev next runs.
   - Desktop production was also still running code from 2026-10-04, without a production ingest key.
 - **Changes:**
@@ -809,9 +809,8 @@ Each finding was checked against the code before acting. All 8 were valid. Fixed
   - Nothing remaining references a removed file (checked by search; `backup-desksos.ps1`, still used by `stop-dev.ps1`, was kept).
   - CI uses only `backend/server` and `client`.
 - **Not touched:** untracked local leftovers that git ignores and that may contain old secrets:
-  - `frontend\.env` and `frontend
-ode_modules`
-  - `backend\.env`, `backend\.env.prod`, `backend\ssl` and `backendenv`
+  - `frontend\.env` and `frontend\node_modules`
+  - `backend\.env`, `backend\.env.prod`, `backend\ssl` and `backend\venv`
   - the old clones `DeskSOS-Enterprise---IT-Operations-Platform\` and `DESKSOS_Backup_20260716_075823\`
 
   The owner should decide whether to remove them.
