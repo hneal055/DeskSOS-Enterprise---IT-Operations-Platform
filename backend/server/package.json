@@ -9,9 +9,11 @@
     "build": "tsc",
     "test": "jest --runInBand",
     "typecheck": "tsc --noEmit",
-    "user:reset-password": "node scripts/reset-password.js"
+    "user:reset-password": "node scripts/reset-password.js",
+    "sentry:test": "node scripts/sentry-test.js"
   },
   "dependencies": {
+    "@sentry/node": "^11.4.0",
     "better-sqlite3": "^12.11.1",
     "compression": "^1.7.4",
     "cors": "^2.8.6",

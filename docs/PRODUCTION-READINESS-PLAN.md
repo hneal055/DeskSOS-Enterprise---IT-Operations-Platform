@@ -285,6 +285,13 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 | 2026-10-06 | First operator account created (`howard`) | ⏳ Waiting on first sign-in (password change pending) |
 | 2026-10-06 | Email alerts (Gmail sender) | ⏸️ Deferred: Gmail rejects the login (`535 BadCredentials`); to be resolved later |
 | 2026-10-06 | Documentation and repository cleanup (finishes 0.7) | ✅ Verified (typecheck, 170 tests, build; no broken references) |
+| 2026-10-06 | 3.7 + 6.2 Enterprise runbook and administrator guide (`docs/OPERATIONS.md`) | ✅ Verified (every referenced file and UI label exists; read-only procedures run live) |
+| 2026-10-06 | 3.3 Restore drill, Enterprise (`restore-drill.ps1`) | ✅ PASS on a fresh production backup (3 incidents, 2 users, 21 events). Desktop's drill still to do |
+| 2026-10-06 | 6.1 User guides: Enterprise operators/viewers (`docs/USER-GUIDE.md`) and Desktop technicians (Desktop `docs/TECHNICIAN-GUIDE.md`) | ✅ Verified (every UI label checked against the source) |
+| 2026-10-06 | 3.6 Bridge visibility and stuck-queue alerts (Desktop) | ✅ Verified (101 tests; end-to-end stuck → recovered alerts; loopback-only status) |
+| 2026-10-06 | 4.3 CI on every PR, both repos | ✅ Verified (a stacked PR triggered CI in each repo) |
+| 2026-10-06 | 4.4 Dependabot configuration, both repos | ✅ Config valid, all directories exist; GitHub-side check after merge |
+| 2026-10-06 | 3.5 Error tracking: Enterprise Sentry hook + `npm run sentry:test` | ✅ Verified against a local fake Sentry (173 tests); needs a real DSN to finish |
 
 ### 0.3 Enterprise backups capture real data
 
@@ -781,6 +788,92 @@ Each finding was checked against the code before acting. All 8 were valid. Fixed
   3. Re-save the password with `Get-Credential`, not `Read-Host -AsSecureString`: pasting into a hidden `Read-Host` prompt in the VS Code terminal stores a single control character.
 - **Pasting secrets:** hidden prompts in the VS Code terminal don't accept pastes, and copying a command overwrites a code already on the clipboard. A `Get-Credential` pop-up worked.
 - **Later:** invite and reset emails (one-time set-password link, not the password; links only work on the office LAN) will reuse this sender once it works.
+
+### 3.7 + 6.2 Enterprise runbook and administrator guide; 3.3 restore drill (2026-10-06)
+
+- **Change:**
+  - **`docs/OPERATIONS.md`**, for an administrator who wasn't part of the build:
+    - at a glance (production versus dev, tasks, firewall)
+    - daily, weekly and quarterly checks
+    - start, stop and restart
+    - upgrade and rollback
+    - backup, restore and the restore drill
+    - accounts: onboarding, role changes, offboarding, forgotten passwords, all admins locked out, audit trail
+    - rotating secrets: JWT secret, ingest key
+    - the HTTPS certificate: renewal, trusting it on other PCs
+    - server PC settings: sleep, the Node.js firewall rules, the network profile
+    - alerts and their current status
+    - removing production
+    - a troubleshooting table built from the problems actually hit on 2026-10-05 and 2026-10-06
+  - **`backend/server/scripts/restore-drill.ps1`** restores the newest (or a given) backup to a temporary folder without touching production:
+    - checks its integrity and counts incidents, users and history events
+    - serves it from a throwaway server on port 5199, with a temporary secret and no production settings, and checks `/health` and that `/api/incidents` requires sign-in (401)
+    - cleans up and appends `PASS` or `FAIL` to `logs/restore-drill.log`
+  - **README:** links to the runbook. Two stale claims fixed:
+    - "temporary passwords are never logged": the first-start admin password is printed to the PM2 log, once
+    - a reference to the deleted repo-root `.env`
+- **Verification:**
+  - **Restore drill:**
+    - **PASS** on the 02:30 backup and on a fresh production backup taken at 14:26: 3 incidents, 2 users, 21 history events, served healthy.
+    - Negative tests: a corrupt file gives `FAIL` (not a readable SQLite database) and a missing file gives `FAIL`, both with exit 1.
+    - No scratch folder or listener is left behind in any case.
+  - **JWT rotation steps:** tested on a scratch copy. Exactly one `JWT_SECRET` line, the old value removed, other keys kept, a 64-character secret, and running twice is harmless. Never run on the real file.
+  - **Runbook references:** every file and script exists. Every UI label it names is in the dashboard source (Add user, Copy, Reset password, Deactivate, Reactivate, Change password, Tactical Audio, Acknowledge, "Password change pending").
+  - **Read-only procedures run live:**
+    - daily checks: health ok, last backup verified, tasks 0/0, Startup `267011` (it hasn't run since registration)
+    - sleep on AC `0x0`
+    - Node.js rules `LocalSubnet`
+    - firewall rule present
+    - `register-production-tasks.ps1 -DryRun`
+    - the lockout procedure's `user:reset-password -- --list` against `enterprise-prod.db`
+  - **One finding:** the reset tool failed in a shell that had inherited a stale 28-character `JWT_SECRET`. That variable is no longer set at user or machine level, so fresh windows aren't affected, and the runbook's troubleshooting table covers it.
+- **Remaining for 3.3:** a drill for Desktop's database, then the quarterly repeats.
+- **Goal impact:**
+  - *Administrators* can run, upgrade, restore and secure Enterprise from one document, and prove backups restore in one command.
+  - Moves forward the go-live items "Runbooks for both products cover…" and "Restore drill passed within the last 30 days" (Enterprise half).
+
+### Track A: user guides, bridge visibility, CI, Dependabot, error tracking (2026-10-06)
+
+- **6.1 User guides:**
+  - **Enterprise `docs/USER-GUIDE.md`** (operators and viewers): sign-in and the first password change, the dashboard, Critical alarms and arming audio, select/lock, status changes, logging incidents, viewer access. All 36 labels it names exist in `client/src`. Two wrong names were caught and fixed: the password fields, and the audio button "🔇 Click to Arm Audio" (also corrected in the runbook).
+  - **Desktop `docs/TECHNICIAN-GUIDE.md`:**
+    - every sidebar page
+    - the Ticket Builder with priority guidance (Critical raises Enterprise's alarm)
+    - Fix It and Net Fixes, with admin-rights and disruption notes
+    - chat, remote sessions and troubleshooting
+
+    Labels were checked against `tauri-app/src`. Unverified admin-rights claims are marked "Likely".
+- **3.6 Bridge visibility (Desktop):**
+  - **Admin endpoint:** `GET /dashboard/bridge` returns counts, the age of the oldest undelivered ticket, and each undelivered ticket's last error.
+  - **Monitor endpoint:** `GET /health/bridge` returns counts only, and answers loopback requests only (live: 200 via `localhost` and `127.0.0.1`, 404 via `192.168.12.196` and `FORD-DC01`).
+  - **Alerts:** `monitor-health.ps1` alerts once at 60 minutes stuck, once on recovery, and once per batch of rejected tickets.
+  - **Verification:** 17 new tests (101 total), plus an end-to-end run against a scratch backend: stuck gives one alert, a repeat run gives no duplicate, and delivery gives "recovered".
+- **4.3 CI on every PR:** both repos' `pull_request` triggers no longer filter on `main`. Verified with a throwaway stacked PR in each repo; both triggered CI and were closed.
+- **4.4 Dependabot:** `.github/dependabot.yml` in both repos, pointing at the real folders:
+  - Enterprise: `backend/server` and `client`
+  - Desktop: `backend`, `tauri-app` and `tauri-app/src-tauri` (cargo)
+  - both: GitHub Actions
+
+  Minor and patch updates are grouped weekly. The existing Dependabot security PRs in Enterprise (#1, #3–#9) target `/server`, which no longer exists, and should be closed.
+- **3.5 Error tracking (Enterprise):**
+  - **Hook:** `src/instrument.ts` starts Sentry only when `SENTRY_DSN` is set (never in tests), errors only. Before sending, it removes `Authorization`, `X-API-Key`, cookies, request bodies and query strings containing tokens or keys.
+  - **Test command:** `npm run sentry:test` sends one test error.
+  - **Verification:** 3 new tests (173 total). Against a local fake Sentry endpoint, the test command delivered exactly one envelope (environment tagged); with no DSN it refused and sent nothing; and the server ran normally with a DSN set.
+  - **Remaining (owner):** create a Sentry project and set `SENTRY_DSN` for Enterprise and Desktop production, then run the test command.
+- **Findings for later** (user-visible issues seen while writing the guides):
+  - **Enterprise dashboard:**
+    - the Critical Alerts and High Severity counters include resolved incidents
+    - the new-incident form is pre-filled with demo values (`Node-Ops-Lead`, Los Angeles coordinates)
+    - a failed submit gives no message
+  - **Desktop:**
+    - Remote Session likely fails to connect (the answer goes to an undefined target)
+    - "Submitted!" can be clicked again and creates a duplicate ticket
+    - switching pages loses a half-written ticket
+    - Fix It and Kill run without confirmation
+    - the app never checks admin rights
+    - Fix It shows its results in quotes
+    - the ticket's "DNS (8.8.8.8)" line is actually a ping
+    - the sign-in email placeholder suggests the shared admin login
 
 ### Documentation and repository cleanup (2026-10-06)
 
