@@ -287,6 +287,11 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 | 2026-10-06 | Documentation and repository cleanup (finishes 0.7) | ✅ Verified (typecheck, 170 tests, build; no broken references) |
 | 2026-10-06 | 3.7 + 6.2 Enterprise runbook and administrator guide (`docs/OPERATIONS.md`) | ✅ Verified (every referenced file and UI label exists; read-only procedures run live) |
 | 2026-10-06 | 3.3 Restore drill, Enterprise (`restore-drill.ps1`) | ✅ PASS on a fresh production backup (3 incidents, 2 users, 21 events). Desktop's drill still to do |
+| 2026-10-06 | 6.1 User guides: Enterprise operators/viewers (`docs/USER-GUIDE.md`) and Desktop technicians (Desktop `docs/TECHNICIAN-GUIDE.md`) | ✅ Verified (every UI label checked against the source) |
+| 2026-10-06 | 3.6 Bridge visibility and stuck-queue alerts (Desktop) | ✅ Verified (101 tests; end-to-end stuck → recovered alerts; loopback-only status) |
+| 2026-10-06 | 4.3 CI on every PR, both repos | ✅ Verified (a stacked PR triggered CI in each repo) |
+| 2026-10-06 | 4.4 Dependabot configuration, both repos | ✅ Config valid, all directories exist; GitHub-side check after merge |
+| 2026-10-06 | 3.5 Error tracking: Enterprise Sentry hook + `npm run sentry:test` | ✅ Verified against a local fake Sentry (173 tests); needs a real DSN to finish |
 
 ### 0.3 Enterprise backups capture real data
 
@@ -826,6 +831,49 @@ Each finding was checked against the code before acting. All 8 were valid. Fixed
 - **Goal impact:**
   - *Administrators* can run, upgrade, restore and secure Enterprise from one document, and prove backups restore in one command.
   - Moves forward the go-live items "Runbooks for both products cover…" and "Restore drill passed within the last 30 days" (Enterprise half).
+
+### Track A: user guides, bridge visibility, CI, Dependabot, error tracking (2026-10-06)
+
+- **6.1 User guides:**
+  - **Enterprise `docs/USER-GUIDE.md`** (operators and viewers): sign-in and the first password change, the dashboard, Critical alarms and arming audio, select/lock, status changes, logging incidents, viewer access. All 36 labels it names exist in `client/src`. Two wrong names were caught and fixed: the password fields, and the audio button "🔇 Click to Arm Audio" (also corrected in the runbook).
+  - **Desktop `docs/TECHNICIAN-GUIDE.md`:**
+    - every sidebar page
+    - the Ticket Builder with priority guidance (Critical raises Enterprise's alarm)
+    - Fix It and Net Fixes, with admin-rights and disruption notes
+    - chat, remote sessions and troubleshooting
+
+    Labels were checked against `tauri-app/src`. Unverified admin-rights claims are marked "Likely".
+- **3.6 Bridge visibility (Desktop):**
+  - **Admin endpoint:** `GET /dashboard/bridge` returns counts, the age of the oldest undelivered ticket, and each undelivered ticket's last error.
+  - **Monitor endpoint:** `GET /health/bridge` returns counts only, and answers loopback requests only (live: 200 via `localhost` and `127.0.0.1`, 404 via `192.168.12.196` and `FORD-DC01`).
+  - **Alerts:** `monitor-health.ps1` alerts once at 60 minutes stuck, once on recovery, and once per batch of rejected tickets.
+  - **Verification:** 17 new tests (101 total), plus an end-to-end run against a scratch backend: stuck gives one alert, a repeat run gives no duplicate, and delivery gives "recovered".
+- **4.3 CI on every PR:** both repos' `pull_request` triggers no longer filter on `main`. Verified with a throwaway stacked PR in each repo; both triggered CI and were closed.
+- **4.4 Dependabot:** `.github/dependabot.yml` in both repos, pointing at the real folders:
+  - Enterprise: `backend/server` and `client`
+  - Desktop: `backend`, `tauri-app` and `tauri-app/src-tauri` (cargo)
+  - both: GitHub Actions
+
+  Minor and patch updates are grouped weekly. The existing Dependabot security PRs in Enterprise (#1, #3–#9) target `/server`, which no longer exists, and should be closed.
+- **3.5 Error tracking (Enterprise):**
+  - **Hook:** `src/instrument.ts` starts Sentry only when `SENTRY_DSN` is set (never in tests), errors only. Before sending, it removes `Authorization`, `X-API-Key`, cookies, request bodies and query strings containing tokens or keys.
+  - **Test command:** `npm run sentry:test` sends one test error.
+  - **Verification:** 3 new tests (173 total). Against a local fake Sentry endpoint, the test command delivered exactly one envelope (environment tagged); with no DSN it refused and sent nothing; and the server ran normally with a DSN set.
+  - **Remaining (owner):** create a Sentry project and set `SENTRY_DSN` for Enterprise and Desktop production, then run the test command.
+- **Findings for later** (user-visible issues seen while writing the guides):
+  - **Enterprise dashboard:**
+    - the Critical Alerts and High Severity counters include resolved incidents
+    - the new-incident form is pre-filled with demo values (`Node-Ops-Lead`, Los Angeles coordinates)
+    - a failed submit gives no message
+  - **Desktop:**
+    - Remote Session likely fails to connect (the answer goes to an undefined target)
+    - "Submitted!" can be clicked again and creates a duplicate ticket
+    - switching pages loses a half-written ticket
+    - Fix It and Kill run without confirmation
+    - the app never checks admin rights
+    - Fix It shows its results in quotes
+    - the ticket's "DNS (8.8.8.8)" line is actually a ping
+    - the sign-in email placeholder suggests the shared admin login
 
 ### Documentation and repository cleanup (2026-10-06)
 

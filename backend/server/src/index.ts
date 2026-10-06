@@ -1,3 +1,5 @@
+import { SENTRY_ENABLED } from "./instrument"; // first, so Sentry can instrument express
+import * as Sentry from "@sentry/node";
 import express, { Express } from "express";
 import cors from "cors";
 import fs from "fs";
@@ -126,6 +128,9 @@ app.use((req, res) => {
     message: "Endpoint does not exist. See GET /api for available endpoints.",
   });
 });
+
+// Report unhandled route errors (5xx) to Sentry when configured, before responding
+if (SENTRY_ENABLED) Sentry.setupExpressErrorHandler(app);
 
 // Error handler
 app.use(

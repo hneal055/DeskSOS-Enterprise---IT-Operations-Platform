@@ -233,6 +233,7 @@ Copy `backend/server/.env.example` to `backend/server/.env`. That file is ignore
 | `CLIENT_BUILD_PATH` | Where the built dashboard is | `client/build` |
 | `TLS_CERT_PATH` / `TLS_KEY_PATH` | HTTPS certificate and key (PEM, relative to `backend/server`). Both or neither; **required in production** | unset (HTTP) |
 | `ALLOW_HTTP_IN_PRODUCTION` | `true` only if a TLS proxy sits in front of the server | unset |
+| `SENTRY_DSN` | Sentry project for server error reports (credentials and bodies are stripped). Check with `npm run sentry:test` | unset (off) |
 
 In production (`NODE_ENV=production`), `backend/server/.env.production` is loaded first and wins over `.env`. Production must have its **own** `JWT_SECRET` (and ingest key), so tokens from the development server don't work on production.
 

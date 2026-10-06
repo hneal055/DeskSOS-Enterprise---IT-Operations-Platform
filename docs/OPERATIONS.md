@@ -330,6 +330,14 @@ The Health Monitor writes DOWN and Recovered to `monitor.log`. To also send them
 | Teams (decision D6) | `ALERT_TEAMS_WEBHOOK_URL` |
 | Email | `ALERT_SMTP_HOST`, `ALERT_SMTP_PORT`, `ALERT_SMTP_USER`, `ALERT_SMTP_PASS`, `ALERT_TO` |
 
+**Error tracking (Sentry, optional).** Put the project's DSN in `.env.production` as `SENTRY_DSN=...`, restart with `.\start-production.ps1 -SkipBuild`, then check it from `backend\server`:
+
+```powershell
+$env:NODE_ENV = 'production'; npm run sentry:test; Remove-Item Env:NODE_ENV
+```
+
+It should say `Sent test error ...`, and the error should appear in the Sentry project. Server errors (5xx) are then reported automatically. Passwords, tokens, API keys and request bodies are never sent.
+
 **Status (2026-10-06):** email is set up but Gmail rejects the sign-in, and Teams isn't configured. **Until one works, nobody is notified of an outage.** See the plan entry "Email alerts: deferred".
 
 **Pasting a secret into a prompt:** hidden prompts in the VS Code terminal don't accept pastes. Use a pop-up box instead:

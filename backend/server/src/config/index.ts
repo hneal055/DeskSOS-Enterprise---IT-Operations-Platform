@@ -110,6 +110,8 @@ export const config = {
   tlsCertPath: process.env.TLS_CERT_PATH?.trim() ? fromServerDir(process.env.TLS_CERT_PATH.trim()) : "",
   tlsKeyPath: process.env.TLS_KEY_PATH?.trim() ? fromServerDir(process.env.TLS_KEY_PATH.trim()) : "",
   tlsEnabled: Boolean(process.env.TLS_CERT_PATH?.trim() && process.env.TLS_KEY_PATH?.trim()),
+  // Sentry error tracking (plan task 3.5); off unless set
+  sentryDsn: process.env.SENTRY_DSN?.trim() || "",
 };
 
 function positiveInt(raw: string | undefined, fallback: number): number {
