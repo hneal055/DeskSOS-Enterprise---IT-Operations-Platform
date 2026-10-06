@@ -44,7 +44,7 @@ cd client; npm install; cd ..
 
 ### Local Development on Windows (PowerShell scripts)
 
-Two scripts in the repo root manage a dev session: the backend runs under PM2 and the React dashboard runs on the Vite dev server (`npm start`, port 3000). The backend always loads `backend/server/.env` (not the repo-root `.env`, which belongs to a different stack). It listens on port 5100 because 5000 is used by the DESKSOS-Desktop backend.
+Two scripts in the repo root manage a dev session: the backend runs under PM2 and the React dashboard runs on the Vite dev server (`npm start`, port 3000). The backend always loads `backend/server/.env` (and, in production, `.env.production` first). It listens on port 5100 because 5000 is used by the DESKSOS-Desktop backend.
 
 | Script | What it does |
 | ------ | ------------ |
@@ -81,6 +81,8 @@ On Windows, PM2 communicates through the named pipe `\\.\pipe\rpc.sock`. If the 
 - `stop-dev.ps1` removes orphaned daemons automatically. To start completely fresh, run `.\stop-dev.ps1 -KillPm2` from an elevated terminal.
 
 ### Production deployment
+
+> **Running production day to day?** Use the runbook, [docs/OPERATIONS.md](docs/OPERATIONS.md). It covers daily checks, upgrades and rollback, backup and restore (with a restore drill), accounts, secrets, certificates and troubleshooting. This section is the setup reference.
 
 Production runs alongside development on the same PC, under its own PM2 name, port and database:
 
@@ -368,7 +370,7 @@ The server logs through winston to its standard output; PM2 writes that to its l
   - `audit`: `auth.login`, `auth.login_failed`, `auth.password_changed`, `user.created`, `user.updated` (with from → to), `user.password_reset`
   - `startup`
 - **Development:** short readable lines at `debug` level.
-- **Never logged:** passwords, temporary passwords, tokens, API keys.
+- **Never logged:** passwords, temporary passwords, tokens, API keys. The one exception is the very first start of a new database, which prints the initial admin password to the PM2 log so it can be read once. It stops working when it's changed at first sign-in.
 
 ```powershell
 pm2 logs desksos-enterprise                      # live
