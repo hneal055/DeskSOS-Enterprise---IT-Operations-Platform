@@ -15,15 +15,15 @@
   "dependencies": {
     "@sentry/node": "^11.4.0",
     "better-sqlite3": "^12.11.1",
-    "compression": "^1.7.4",
+    "compression": "^1.8.2",
     "cors": "^2.8.6",
     "dotenv": "^16.3.1",
     "express": "^4.22.3",
     "express-rate-limit": "^7.1.5",
-    "express-validator": "^7.0.1",
+    "express-validator": "^7.3.2",
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
-    "socket.io": "^4.5.4",
+    "socket.io": "^4.8.4",
     "winston": "^3.11.0",
     "zod": "^3.25.76"
   },
