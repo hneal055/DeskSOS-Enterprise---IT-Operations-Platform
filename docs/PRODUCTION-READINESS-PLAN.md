@@ -228,9 +228,15 @@ This assumes one developer, with an administrator available for elevated steps, 
 
 ## 9. Next actions
 
-1. Owner: review this plan and answer decisions D1–D6.
-2. Dev: start Phase 0 tasks 0.3, 0.4, 0.5 and 0.7, which need no decisions.
-3. Admin: Phase 0 tasks 0.1 and 0.2 in an Administrator window.
+Updated 2026-10-06. Phases 0 and 1 are complete; Phase 2 is merged and running in production, and its exit gate needs only the reboot test.
+
+1. Admin: **reboot test** (Phase 2 exit gate, plus Phase 0's boot task). Restart FORD-DC01, don't sign in for 5 minutes, then check that `https://FORD-DC01:5543` and Desktop's `https://FORD-DC01:5443/health` both respond.
+2. Admin: **trust the CA on the other LAN PCs** (task 2.3) and check that the dashboard loads there without a warning.
+3. Admin: **limit Desktop's firewall rule** ("DeskSOS Backend", TCP 5443) to `LocalSubnet` (decision D3).
+4. Owner: set your own Desktop admin password if it's still the reset one (`change-password.ps1`).
+5. Owner/Admin: **alert channel**. Email is deferred (see "Email alerts: deferred"); a Teams webhook is an alternative.
+6. Dev: Phase 3 (off-machine backup copies, restore drill, Enterprise runbook) and Phase 5 (a current Desktop release build; the one on FORD-DC01 is from 2026-10-03).
+7. Later: invite and password-reset emails for new users, once a sender works.
 
 ## 10. Progress and verification log
 
@@ -273,6 +279,10 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 | 2026-10-05 | 2.8 Desktop production → Enterprise production bridge | ✅ Verified end to end (Enterprise branch + Desktop PR #7); key pairing is an admin step |
 | 2026-10-05 | 2.5 and 2.6 Start on boot, firewall, backup and monitor tasks | ✅ Scripted and verified (on branch) |
 | 2026-10-05 | **Phase 2 merged; production running on FORD-DC01** | ✅ Verified (HTTPS, sign-in enforced, admin password changed, backup and monitor tasks result 0, firewall LAN-only); reboot test pending |
+| 2026-10-06 | Overnight outage found: the server PC went to sleep | ✅ Fixed (sleep and hibernate on AC disabled) |
+| 2026-10-06 | 2.8 Production ingest keys paired; Desktop → Enterprise verified in production | ✅ Verified twice (07:23 and 09:23 Critical tickets: `201`, live strobe and audio alarm) |
+| 2026-10-06 | Desktop production password recovery (Desktop PR #8) | ✅ Merged and used |
+| 2026-10-06 | First operator account created (`howard`) | ⏳ Waiting on first sign-in (password change pending) |
 | 2026-10-06 | Email alerts (Gmail sender) | ⏸️ Deferred: Gmail rejects the login (`535 BadCredentials`); to be resolved later |
 
 ### 0.3 Enterprise backups capture real data
@@ -721,6 +731,35 @@ Each finding was checked against the code before acting. All 8 were valid. Fixed
   - DeskSOS Desktop's own firewall rule ("DeskSOS Backend", TCP 5443) still allows any address; limit it to the LAN as well (decision D3).
   - If Windows shows the Node.js network prompt again (for example after a Node update), Allow creates a new unrestricted rule; limit it the same way.
 - **Goal impact:** Enterprise production is live for *users* on the office LAN over HTTPS, with real accounts and a changed admin password. *Administrators* get nightly backups and a health check without anyone signed in, and the dev and production services are no longer reachable from outside the LAN. Moves forward go-live items "HTTPS ... firewall limited to the LAN", "default and first-run passwords changed" and "daily backups running"; "services come back after a reboot" waits on the reboot test.
+
+### Production bridge verified; overnight sleep found and fixed (2026-10-06)
+
+- **Overnight outage:**
+  - The health monitor logged DOWN from 03:16 to 06:20. PM2 shows the process never stopped.
+  - The Windows log shows FORD-DC01 entering **Modern Standby**: the PC slept after 5 idle minutes on AC power. It woke briefly for the 02:30 backup, which succeeded, and resumed when someone moved the mouse at 06:20.
+  - Both products were unreachable from the LAN while it slept.
+  - **Fix:** `powercfg /change standby-timeout-ac 0` and `powercfg /change hibernate-timeout-ac 0`. Verified: both AC settings read `0x0`. The screen can still turn off.
+- **Why the first test ticket didn't arrive:**
+  - It was sent from the **development** Desktop app (`tauri-app\src-tauri	arget\debug\desksos.exe`), which talks to Desktop dev (`localhost:5000`). Desktop dev forwards to Enterprise dev (`:5100`), which was stopped.
+  - Those tickets sit in the dev outbox as pending (`ECONNREFUSED`) and are delivered when Enterprise dev next runs.
+  - Desktop production was also still running code from 2026-10-04, without a production ingest key.
+- **Changes:**
+  - Desktop checkout moved to `main` with PR #7 (production bridge).
+  - The owner paired the production keys (`rotate-ingest-key.ps1 -Production`) and restarted both production services. Desktop logged `Forwarding new tickets to https://localhost:5543/api/ingest/incidents as "desksos-desktop-prod"`.
+  - Desktop production's accounts have random passwords that were no longer known, and `change-password.ps1` needs the current one. Desktop PR #8 adds `backend/scripts/reset-password.js --prod <email>`. CodeRabbit's finding (a mistyped `--prod` silently reset the dev database) was fixed before merge; 84 tests pass.
+  - The owner created the first operator account (`howard`) in the Users screen. Enterprise sends no email, so the temporary password is handed over in person; that one should be reset before use, because it appeared in a screenshot.
+- **Verification** (live, production):
+  - Critical tickets from the release Desktop app at **07:23:28** and **09:23:27** each produced `POST /api/ingest/incidents 201` in Enterprise production's log, in the same second.
+  - The dashboard raised the tactical strobe, the Critical Alerts count rose, and with Tactical Audio armed the alarm and voice played.
+  - Priority mapping checked in code: Critical → CRITICAL (alarm); High → HIGH; Medium and Low → no alarm.
+- **Notes for operators:**
+  - Tactical Audio must be re-armed after every page refresh (browser autoplay rule).
+  - The alarm sounds only in dashboards that are open at the time.
+  - Production and dev have separate accounts in both products: Enterprise `admin@desksos.local`, Desktop `admin@desksos.com`.
+- **Goal impact:**
+  - Task 2.8's "done when" is met in production: a ticket in Desktop production appears in the Enterprise production dashboard.
+  - *Users* reporting a critical problem now raise an immediate audible alarm for *administrators*, and production no longer drops off the LAN overnight.
+  - Moves forward "Bridge" and "Accounts created for every launch user"; "services come back after a reboot" still waits on the reboot test.
 
 ### Email alerts: deferred (2026-10-06)
 

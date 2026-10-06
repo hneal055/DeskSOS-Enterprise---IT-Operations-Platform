@@ -91,6 +91,21 @@ Production runs alongside development on the same PC, under its own PM2 name, po
 | Database | `backend/server/data/enterprise.db` | `backend/server/data/enterprise-prod.db` |
 | Secrets | `backend/server/.env` | `backend/server/.env.production` (its own `JWT_SECRET` and `INGEST_API_KEY`) |
 
+**Keep the server awake.** Windows 11 puts the PC to sleep after a few idle minutes, which takes production off the network (seen 2026-10-06). Once, from an Administrator window:
+
+```powershell
+powercfg /change standby-timeout-ac 0
+powercfg /change hibernate-timeout-ac 0
+```
+
+**Firewall:** if Windows has ever shown a "Node.js wants to access the network" prompt, its "Node.js JavaScript Runtime" rules allow every Node port from any address, which overrides the LAN-only rule below. Limit them:
+
+```powershell
+Get-NetFirewallRule -DisplayName 'Node.js JavaScript Runtime' | Set-NetFirewallRule -EdgeTraversalPolicy Block -RemoteAddress LocalSubnet
+```
+
+The production scripts need **PowerShell 7**. From a Windows PowerShell 5.1 window, run them through it, e.g. `& "C:\Program Files\PowerShell\pwsh.exe" -NoProfile -File C:\Projects\DESKSOS\start-production.ps1 -SkipBuild`.
+
 **Start or restart production** from an Administrator **PowerShell 7** window:
 
 ```powershell
