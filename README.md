@@ -325,7 +325,7 @@ Signed-in requests send `Authorization: Bearer <token>`. Tokens last 8 hours and
 | `POST /api/ingest/incidents` | `X-API-Key` | Desktop intake, idempotent on `(source, externalId)` |
 | `GET /api/dashboard`, `/api/chat/*`, `/api/user/me` | any role | Sample data (placeholders) |
 
-Invalid input returns `400 { error, details[] }`. Details: [docs/API_REFERENCE.md](docs/API_REFERENCE.md) (outdated).
+Invalid input returns `400 { error, details[] }`. Full details, with request and response examples: [docs/API_REFERENCE.md](docs/API_REFERENCE.md); machine-readable: [openapi.yaml](openapi.yaml).
 
 **Socket.IO:** connect with `auth: { token }`; connections without a valid token are refused. Events (server → client): `incident:created`, `incident:updated`, `incident:locked`, `message:new`, `presence:update`, `user:typing`.
 

@@ -1,517 +1,437 @@
-# DeskSOS Enterprise API - Complete Reference Guide
+# DeskSOS Enterprise API reference
 
-## Quick Start
+This is the HTTP and Socket.IO API of the DeskSOS Enterprise backend (`backend/server`). Everything here is taken from the code. If the two disagree, the code is right and this file needs fixing.
 
-### Authentication
-All API requests require a Bearer token in the Authorization header:
+The machine-readable version is [`openapi.yaml`](../openapi.yaml) at the repository root.
 
-```bash
-Authorization: Bearer YOUR_API_TOKEN
-```
+## Base URLs
 
-### Base URLs
-- **Production:** `https://api.desksos.local/v1`
-- **Development:** `http://localhost:3000/v1`
+| Environment | Base URL | Notes |
+|---|---|---|
+| Production | `https://FORD-DC01:5543` | HTTPS, office LAN only. The same port also serves the dashboard |
+| Development | `http://localhost:5100` | The Vite dashboard on `:3000` proxies `/api` and `/socket.io` here |
 
----
+Paths have no version prefix. Every API path starts with `/api`, except `/health`.
 
-## Health & Diagnostics Endpoints
+Production uses a certificate from the local CA (see the README, "HTTPS"). Clients must trust that CA. Windows `curl.exe` also needs `--ssl-no-revoke`, because the local CA has no revocation list.
 
-### GET /health
-**Status Check - Get system health status**
+## Authentication
 
-```bash
-curl -X GET https://api.desksos.local/v1/health \
-  -H "Authorization: Bearer YOUR_TOKEN"
-```
+There are two ways to authenticate:
 
-**Response:**
-```json
-{
-  "status": "healthy",
-  "uptime": "5d 3h 24m",
-  "services": {"docker": "running", "nginx": "running"},
-  "memory": {"total": 16, "used": 8.5, "percentUsed": 53},
-  "disk": {"total": 512, "used": 256, "percentFree": 50}
-}
-```
+| Who | How | Used by |
+|---|---|---|
+| People | `Authorization: Bearer <token>`, from `POST /api/auth/login` | The dashboard, and scripts acting as a user |
+| Machines | `X-API-Key: <INGEST_API_KEY>` | `POST /api/ingest/incidents` only (the DeskSOS Desktop bridge) |
 
----
+**Tokens:**
 
-### GET /diagnostics
-**Full System Diagnostics**
+- They are JWTs (HS256) and last **8 hours**.
+- They stop working **immediately** when the user's password is changed or reset, their role changes, or they're deactivated. Each token carries the user's token version, and the server checks it on every request.
+- Logout is client-side: discard the token. `POST /api/auth/logout` exists for symmetry and returns 204.
 
-```bash
-curl -X GET "https://api.desksos.local/v1/diagnostics?detailed=true&include=memory,disk,network" \
-  -H "Authorization: Bearer YOUR_TOKEN"
-```
+**First sign-in.** New and reset accounts have a temporary password, and `mustChangePassword: true`. Until the password is changed, every endpoint returns `403 { "error": "Password change required", "code": "PASSWORD_CHANGE_REQUIRED" }`, except `GET /api/auth/me` and `POST /api/auth/change-password`.
 
-**Parameters:**
-- `detailed` (boolean): Include detailed breakdown
-- `include` (string): Comma-separated: `cpu,memory,disk,network,processes`
+### Roles
 
-**Response:**
-```json
-{
-  "cpu": {"cores": 8, "usage": 35.2, "temperature": 45},
-  "memory": {"total": 16384, "used": 8192, "percentUsed": 50},
-  "disk": [{"drive": "C:", "total": 512, "free": 256, "percentFree": 50}],
-  "network": {"adapters": 2, "activeConnections": 15},
-  "topProcesses": [{"pid": 1234, "name": "docker", "memory": 512, "cpu": 10.5}]
-}
-```
+| Role | Can |
+|---|---|
+| `viewer` | Read incidents and their history |
+| `operator` | Everything a viewer can, plus create incidents, change their status and lock them |
+| `admin` | Everything an operator can, plus manage users |
 
----
+## Endpoints at a glance
 
-### GET /services
-**List all services and their status**
-
-```bash
-curl -X GET https://api.desksos.local/v1/services \
-  -H "Authorization: Bearer YOUR_TOKEN"
-```
-
-**Query Parameters:**
-- `status` (string): Filter by `running`, `stopped`, `error`
-
-**Response:**
-```json
-{
-  "services": [
-    {
-      "name": "docker",
-      "status": "running",
-      "uptime": "5d 3h",
-      "restarts": 2,
-      "lastRestart": "2026-02-24T08:30:00Z"
-    }
-  ]
-}
-```
+| Method and path | Access | Purpose |
+|---|---|---|
+| `GET /health` | Public | Liveness and database check |
+| `GET /api` | Public | Server name and a short endpoint list |
+| `POST /api/auth/login` | Public (rate limited) | Sign in; returns a token |
+| `GET /api/auth/me` | Signed in (a password change may be pending) | Current user |
+| `POST /api/auth/change-password` | Signed in (a password change may be pending) | Change your own password; returns a new token |
+| `POST /api/auth/logout` | Public | No-op; returns 204 |
+| `GET /api/incidents` | Any role | List incidents |
+| `POST /api/incidents` | operator, admin | Create an incident |
+| `PATCH /api/incidents/:id` | operator, admin | Change an incident's status |
+| `POST /api/incidents/:id/lock` | operator, admin | Lock an incident to yourself |
+| `GET /api/incidents/:id/history` | Any role | An incident's audit trail |
+| `GET /api/admin/users` | admin | List users |
+| `POST /api/admin/users` | admin | Create a user; returns a temporary password |
+| `PATCH /api/admin/users/:id` | admin | Change name, role or active state |
+| `POST /api/admin/users/:id/reset-password` | admin | Issue a new temporary password |
+| `POST /api/ingest/incidents` | `X-API-Key` | Machine intake (idempotent) |
+| `GET /api/user/me` | Any role | Current user (older shape) |
+| `GET /api/dashboard`, `GET /api/dashboard/metrics` | Any role | **Sample data** (placeholder) |
+| `GET /api/chat/channels`, `GET /api/chat/channels/:channelId/messages` | Any role | **Sample data** (placeholder) |
 
 ---
 
-### POST /services/{serviceName}/restart
-**Restart a specific service (Admin only)**
+## Health
 
-```bash
-curl -X POST https://api.desksos.local/v1/services/nginx/restart \
-  -H "Authorization: Bearer YOUR_TOKEN"
-```
+### `GET /health`
 
-**Response:**
+No authentication. It checks that the database answers.
+
 ```json
-{
-  "success": true,
-  "message": "Service restarted successfully"
-}
+200 { "status": "ok", "timestamp": "2026-10-06T11:49:37.296Z", "services": { "database": "connected" } }
+503 { "status": "error", "timestamp": "…", "services": { "database": "unavailable" } }
 ```
+
+The health monitor task and `start-production.ps1` both use this endpoint.
 
 ---
 
-## User Management Endpoints
+## Auth
 
-### GET /users
-**Retrieve list of users**
+### `POST /api/auth/login`
 
-```bash
-curl -X GET "https://api.desksos.local/v1/users?page=1&limit=20&role=admin" \
-  -H "Authorization: Bearer YOUR_TOKEN"
+```json
+{ "email": "admin@desksos.local", "password": "…" }
 ```
 
-**Query Parameters:**
-- `page` (integer): Page number (default: 1)
-- `limit` (integer): Results per page (default: 20, max: 100)
-- `role` (string): Filter by `admin`, `user`, `viewer`
-- `search` (string): Search by email or name
+**Response 200:**
 
-**Response:**
 ```json
 {
-  "users": [
-    {
-      "id": "user_001",
-      "email": "admin@desksos.local",
-      "name": "Administrator",
-      "role": "admin",
-      "status": "active",
-      "createdAt": "2026-01-15T10:00:00Z",
-      "lastLogin": "2026-02-25T09:00:00Z"
-    }
-  ],
-  "pagination": {
-    "page": 1,
-    "limit": 20,
-    "total": 45,
-    "pages": 3
-  }
+  "token": "eyJhbGciOiJIUzI1NiIs…",
+  "user": { "id": 1, "email": "admin@desksos.local", "name": "Administrator", "role": "admin", "mustChangePassword": false }
 }
 ```
+
+| Status | Meaning |
+|---|---|
+| 400 | Missing email or password (validation) |
+| 401 | `Invalid email or password`. The same response covers an unknown email, a wrong password and a deactivated account |
+| 429 | Too many **failed** attempts for this IP and email (10 per 15 minutes) |
+
+Successful and failed sign-ins are written to the audit log (`auth.login`, `auth.login_failed`).
+
+### `GET /api/auth/me`
+
+Returns the `user` object above. It works while a password change is pending, so the dashboard can show the change-password screen.
+
+### `POST /api/auth/change-password`
+
+```json
+{ "currentPassword": "…", "newPassword": "at least 12 characters" }
+```
+
+**Response 200:** `{ "token": "<new token>", "user": { … } }`. Store the new token, because every earlier token for this user stops working. The user's other open live connections are closed and reconnect with their own tokens. Those are rejected if the tokens are old.
+
+| Status | Meaning |
+|---|---|
+| 400 | New password under 12 or over 256 characters, or the same as the current one |
+| 401 | `Current password is incorrect` |
+
+### `POST /api/auth/logout`
+
+Returns 204. Tokens are stateless, so the client simply discards its token.
 
 ---
 
-### POST /users
-**Create a new user**
+## Incidents
 
-```bash
-curl -X POST https://api.desksos.local/v1/users \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "newuser@desksos.local",
-    "name": "New User",
-    "password": "SecurePassword123!",
-    "role": "user"
-  }'
-```
+### The incident object
 
-**Request Body:**
 ```json
 {
-  "email": "string (required)",
-  "name": "string (required)",
-  "password": "string (required, min 8 chars)",
-  "role": "admin|user|viewer (default: user)"
+  "id": 42,
+  "title": "PC keeps shutting down and powering up",
+  "description": "…",
+  "category": "Desktop Support",
+  "severity": "CRITICAL",
+  "status": "Open",
+  "location": { "latitude": 34.0522, "longitude": -118.2437 },
+  "assignedTo": "Node-Ops-Lead",
+  "source": "desksos-desktop-prod",
+  "externalId": "T-12345678",
+  "requester": "Administrator",
+  "created_at": "2026-10-06T14:23:27.000Z",
+  "updated_at": "2026-10-06T14:23:27.000Z"
 }
 ```
 
-**Response (201):**
+| Field | Values |
+|---|---|
+| `severity` | `CRITICAL`, `HIGH`, `MEDIUM`, `LOW` |
+| `status` | `Open`, `In Progress`, `Resolved` |
+| `source` | `enterprise-ui` for incidents created in the dashboard, or the integration's `source` for ingested ones |
+| `externalId`, `requester` | Set for ingested incidents; `null` otherwise |
+| `lockedBy` | Present only in list responses, while someone holds the lock |
+
+### `GET /api/incidents`
+
+Returns an array of the 500 newest incidents, newest first.
+
+### `POST /api/incidents` (operator, admin)
+
 ```json
 {
-  "id": "user_002",
-  "email": "newuser@desksos.local",
-  "name": "New User",
-  "role": "user",
-  "status": "active",
-  "createdAt": "2026-02-25T09:43:13Z"
+  "title": "Memory leak detected on worker cluster",
+  "description": "Diagnostic details…",
+  "category": "Infrastructure",
+  "severity": "CRITICAL",
+  "status": "Open",
+  "assignedTo": "Node-Ops-Lead",
+  "location": { "latitude": 34.0522, "longitude": -118.2437 }
 }
 ```
+
+| Field | Rules | Default |
+|---|---|---|
+| `title` | Required, 1–255 characters | |
+| `description` | Required, 1–20,000 characters | |
+| `category` | Optional, up to 100 characters | `Infrastructure` |
+| `severity` | Optional, one of the severities | `MEDIUM` |
+| `status` | Optional, one of the statuses | `Open` |
+| `assignedTo` | Optional, up to 100 characters | `Unassigned` |
+| `location.latitude` / `location.longitude` | Optional, −90…90 / −180…180. `null` counts as not provided | |
+
+Strings are trimmed and unknown fields are dropped. The response is **201** with the incident. The server also emits `incident:created` to every connected dashboard, and a `CRITICAL` incident triggers the dashboard alarm.
+
+### `PATCH /api/incidents/:id` (operator, admin)
+
+The only field that can change is the status:
+
+```json
+{ "status": "Resolved" }
+```
+
+Returns **200** with the updated incident and emits `incident:updated`. Setting the status to `Resolved` releases any lock. A real change is recorded in the history; setting the same status again isn't. If the incident doesn't exist, the response is **404**.
+
+### `POST /api/incidents/:id/lock` (operator, admin)
+
+Locks the incident to the **signed-in user**. The holder's name comes from the token and can't be supplied by the client. There is no request body.
+
+```json
+200 { "success": true, "lockedBy": "Administrator" }
+409 { "error": "Incident is currently locked by Jane Doe" }
+```
+
+Emits `incident:locked`. Locks are held in memory, so they clear when the server restarts. A lock is released when the incident is resolved.
+
+### `GET /api/incidents/:id/history`
+
+Returns the incident's audit trail, oldest first:
+
+```json
+[
+  { "id": 1, "incidentId": 42, "action": "ingested",
+    "actor": { "userId": null, "name": "desksos-desktop-prod", "type": "integration" },
+    "details": { "externalId": "T-12345678", "requester": "Administrator", "severity": "CRITICAL" },
+    "createdAt": "2026-10-06T14:23:27.000Z" },
+  { "id": 2, "incidentId": 42, "action": "status_changed",
+    "actor": { "userId": 1, "name": "Administrator", "type": "user" },
+    "details": { "from": "Open", "to": "Resolved" },
+    "createdAt": "…" }
+]
+```
+
+`action` is one of `created`, `ingested`, `status_changed`, `locked`.
 
 ---
 
-### GET /users/{userId}
-**Get specific user details**
+## User administration (admin)
 
-```bash
-curl -X GET https://api.desksos.local/v1/users/user_001 \
-  -H "Authorization: Bearer YOUR_TOKEN"
-```
+Admins never choose users' passwords. The server generates a temporary one, returns it **once**, and the user must change it at first sign-in. **Enterprise doesn't send email**, so the admin passes the password on themselves.
 
-**Response:**
+### The admin user object
+
 ```json
-{
-  "id": "user_001",
-  "email": "admin@desksos.local",
-  "name": "Administrator",
-  "role": "admin",
-  "status": "active"
-}
+{ "id": 2, "email": "jane@example.com", "name": "Jane Doe", "role": "operator", "active": true,
+  "mustChangePassword": true, "createdAt": "…", "lastLoginAt": null }
 ```
+
+### `GET /api/admin/users`
+
+Returns an array of all users: active ones first, then by name.
+
+### `POST /api/admin/users`
+
+```json
+{ "email": "jane@example.com", "name": "Jane Doe", "role": "operator" }
+```
+
+The email is lowercased and must be valid. The name can be 1–100 characters, and the role is `admin`, `operator` or `viewer`.
+
+```json
+201 { "user": { … }, "temporaryPassword": "Xk7-…" }
+409 { "error": "A user with this email already exists" }
+```
+
+### `PATCH /api/admin/users/:id`
+
+Send at least one of these fields:
+
+```json
+{ "name": "Jane Smith", "role": "viewer", "active": false }
+```
+
+There's no delete: **deactivate** a user with `active: false` instead. A role change or deactivation revokes the user's tokens and closes their live connections. Returns **200** with the user.
+
+| Status | Meaning |
+|---|---|
+| 400 | Deactivating yourself, removing your own admin role, or leaving no active admin |
+| 404 | User not found |
+
+### `POST /api/admin/users/:id/reset-password`
+
+Issues a new temporary password, revokes the user's tokens and closes their connections. It also sets `mustChangePassword`.
+
+```json
+200 { "user": { … }, "temporaryPassword": "…" }
+```
+
+You can't reset your own password this way (**400**); use change-password instead. If every admin is locked out, reset from the server with `npm run user:reset-password` (see the README, "Accounts").
 
 ---
 
-### PUT /users/{userId}
-**Update user information**
+## Ingest (machine to machine)
 
-```bash
-curl -X PUT https://api.desksos.local/v1/users/user_001 \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Updated Name",
-    "role": "admin"
-  }'
-```
+### `POST /api/ingest/incidents`
 
-**Response:**
+This is how other systems, mainly the DeskSOS Desktop bridge, create incidents.
+
+- **Authentication:** the `X-API-Key` header must equal the server's `INGEST_API_KEY`, compared in constant time. Pair and rotate keys with `rotate-ingest-key.ps1`.
+- **Idempotency:** it's idempotent on `(source, externalId)`. A retry returns the existing incident with **200** instead of creating a duplicate, so senders can retry safely.
+
 ```json
 {
-  "id": "user_001",
-  "name": "Updated Name",
-  "role": "admin",
-  "email": "admin@desksos.local"
+  "source": "desksos-desktop-prod",
+  "externalId": "T-12345678",
+  "title": "User unable to connect to network",
+  "description": "Diagnostic report…",
+  "severity": "CRITICAL",
+  "category": "Desktop Support",
+  "requester": "Administrator",
+  "assignedTo": "Sarah K.",
+  "location": { "latitude": 34.05, "longitude": -118.24 }
 }
 ```
+
+| Field | Rules |
+|---|---|
+| `source`, `externalId` | Required, trimmed, up to 200 characters |
+| `title` | Required, trimmed, up to 255 characters (longer text is cut) |
+| `description` | Required, trimmed, up to 20,000 characters (longer text is cut) |
+| `severity` | Optional, one of the severities (default `MEDIUM`) |
+| `category` | Optional (default `Desktop Support`) |
+| `requester`, `assignedTo` | Optional, up to 200 characters |
+| `location` | Optional; values that aren't numbers are ignored |
+
+| Status | Meaning |
+|---|---|
+| 201 | Created; also emits `incident:created` (the alarm, if `CRITICAL`) and records an `ingested` history event |
+| 200 | Already received; returns the existing incident |
+| 400 | `{ "error": "Validation failed", "details": [ … ] }` |
+| 401 | `Invalid or missing API key` |
+| 429 | Over the ingest limit. The Desktop bridge retries |
+| 503 | `INGEST_API_KEY` isn't set, so ingest is off |
+
+Desktop maps its priorities to severities like this: P1 (Critical) → `CRITICAL`, P2 (High) → `HIGH`, P3 → `MEDIUM`, P4 → `LOW`.
 
 ---
 
-### DELETE /users/{userId}
-**Delete a user account (Admin only)**
+## Placeholder endpoints
 
-```bash
-curl -X DELETE https://api.desksos.local/v1/users/user_002 \
-  -H "Authorization: Bearer YOUR_TOKEN"
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "message": "User deleted successfully"
-}
-```
+`GET /api/dashboard`, `GET /api/dashboard/metrics`, `GET /api/chat/channels`, `GET /api/chat/channels/:channelId/messages` and `GET /api/user/me` all require sign-in. Apart from `user/me`, they return **fixed sample data**, not real data. Don't build on them.
 
 ---
 
-## Configuration Endpoints
+## Live updates (Socket.IO)
 
-### GET /config
-**Retrieve system configuration**
+Connect to the same origin. The path is the default, `/socket.io`. Pass the token in the handshake:
 
-```bash
-curl -X GET https://api.desksos.local/v1/config \
-  -H "Authorization: Bearer YOUR_TOKEN"
+```js
+import { io } from "socket.io-client";
+const socket = io("https://FORD-DC01:5543", { auth: (cb) => cb({ token: getToken() }) });
 ```
 
-**Response:**
-```json
-{
-  "appName": "DeskSOS Enterprise",
-  "version": "1.0.0",
-  "environment": "production",
-  "features": {
-    "monitoring": true,
-    "alerts": true,
-    "reporting": true
-  },
-  "limits": {
-    "maxUsers": 1000,
-    "maxSessions": 5000,
-    "apiRateLimit": 1000
-  }
-}
-```
+Connections without a valid token are refused with `Authentication required`. When a password change, reset, role change or deactivation revokes a token, the server disconnects that user's sockets.
+
+**Server to client:**
+
+| Event | Payload | When |
+|---|---|---|
+| `incident:created` | Incident | Created in the dashboard or ingested |
+| `incident:updated` | Incident | Status changed |
+| `incident:locked` | `{ incidentId, lockedBy }` | Lock taken |
+| `presence:update` | Online users | Someone joins or leaves |
+| `message:new` | Chat message | Chat (sample feature) |
+| `user:typing`, `user:typing:stop` | `{ userId, userName?, channel? }` | Chat (sample feature) |
+
+**Client to server:** `user:join`, `message:send` (with an acknowledgement callback), `user:typing` and `user:typing:stop`. These are all part of the sample chat feature.
 
 ---
 
-### PUT /config
-**Update system configuration (Admin only)**
+## Errors
 
-```bash
-curl -X PUT https://api.desksos.local/v1/config \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "features": {"monitoring": true, "alerts": false},
-    "limits": {"apiRateLimit": 2000}
-  }'
-```
+Errors are JSON with an `error` message. Some add more fields:
 
-**Response:**
-```json
-{
-  "success": true,
-  "updated": true,
-  "timestamp": "2026-02-25T09:43:13Z"
-}
-```
+| Shape | Used for |
+|---|---|
+| `{ "error": "…" }` | Most errors (401, 403, 404, 409, 429, 500, 503) |
+| `{ "error": "Validation failed", "details": ["title: is required", "severity: must be one of CRITICAL, HIGH, MEDIUM, LOW"] }` | 400 from input validation |
+| `{ "error": "Password change required", "code": "PASSWORD_CHANGE_REQUIRED" }` | 403 before the first password change |
+| `{ "error": "Request body is not valid JSON", "status": 400 }` | Malformed JSON |
+| `{ "error": "Request body is too large", "status": 413 }` | Bodies over 100 kB |
+| `{ "error": "Not Found", "path": "…", "method": "…", "message": "…" }` | Unknown routes |
 
----
+| Status | Meaning |
+|---|---|
+| 401 | Missing, expired or revoked token, or a wrong API key |
+| 403 | The role isn't allowed, or a password change is required |
 
-## Deployment Endpoints
+## Rate limits
 
-### GET /deployments
-**List deployment history**
+The limits apply per client IP, over a 15-minute window. The defaults can be changed with environment variables.
 
-```bash
-curl -X GET "https://api.desksos.local/v1/deployments?page=1&status=success" \
-  -H "Authorization: Bearer YOUR_TOKEN"
-```
+| Limit | Default | Variable | Applies to |
+|---|---|---|---|
+| API | 600 | `RATE_LIMIT_API` | Every `/api` route except ingest |
+| Failed sign-ins | 10 per IP and email | `RATE_LIMIT_LOGIN` | `POST /api/auth/login`; successful sign-ins don't count |
+| Ingest | 2,000 | `RATE_LIMIT_INGEST` | `/api/ingest/*` |
 
-**Query Parameters:**
-- `page` (integer): Page number
-- `limit` (integer): Results per page
-- `status` (string): `pending`, `in_progress`, `success`, `failed`, `cancelled`
+Responses carry the standard `RateLimit` and `RateLimit-Policy` headers (IETF draft 7). Over the limit, the server returns **429** with an `error` message.
 
-**Response:**
-```json
-{
-  "deployments": [
-    {
-      "id": "deploy_001",
-      "version": "1.0.0",
-      "status": "success",
-      "timestamp": "2026-02-25T08:30:00Z",
-      "duration": 120,
-      "deployedBy": "admin@desksos.local",
-      "services": ["api", "web"]
-    }
-  ]
-}
-```
+## Other behaviour
 
----
+- **Request size:** JSON and form bodies are limited to 100 kB.
+- **CORS:** the allowed origins come from `CORS_ORIGINS`, by default `http://localhost:3000,http://localhost:3001`. In production the dashboard is served from the same origin, so CORS doesn't apply to it.
+- **Security headers:** helmet. HSTS and `upgrade-insecure-requests` apply over HTTPS. The Content-Security-Policy allows only same-origin scripts.
+- **Logging:**
+  - Every request is logged as JSON with the user, route, status and duration.
+  - Security events go to the audit log: sign-ins, password changes, user changes and resets.
+  - Logs are in `backend/server/logs/`.
 
-### POST /deployments
-**Initiate a new deployment**
+## Examples
 
-```bash
-curl -X POST https://api.desksos.local/v1/deployments \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "version": "1.0.1",
-    "environment": "production",
-    "services": ["api", "web", "worker"]
-  }'
-```
+**PowerShell 7, production:**
 
-**Request Body:**
-```json
-{
-  "version": "string (required)",
-  "environment": "development|staging|production (required)",
-  "services": ["array of service names"]
-}
-```
-
-**Response (202):**
-```json
-{
-  "deploymentId": "deploy_002",
-  "status": "in_progress",
-  "startedAt": "2026-02-25T09:43:13Z"
-}
-```
-
----
-
-## Logs Endpoints
-
-### GET /logs
-**Retrieve system and application logs**
-
-```bash
-curl -X GET "https://api.desksos.local/v1/logs?service=api&level=error&limit=50" \
-  -H "Authorization: Bearer YOUR_TOKEN"
-```
-
-**Query Parameters:**
-- `service` (string): Filter by service name
-- `level` (string): `debug`, `info`, `warn`, `error`
-- `limit` (integer): Number of logs (default: 100, max: 1000)
-- `from` (string): Start timestamp (ISO 8601)
-- `to` (string): End timestamp (ISO 8601)
-
-**Response:**
-```json
-{
-  "logs": [
-    {
-      "timestamp": "2026-02-25T09:43:13Z",
-      "service": "api",
-      "level": "error",
-      "message": "Database connection failed",
-      "details": {"code": "ECONNREFUSED", "port": 5432}
-    }
-  ],
-  "pagination": {"page": 1, "limit": 50, "total": 156}
-}
-```
-
----
-
-## Error Responses
-
-### Error Response Format
-```json
-{
-  "success": false,
-  "error": {
-    "code": "ERROR_CODE",
-    "message": "Human readable message",
-    "details": "Additional context"
-  },
-  "timestamp": "2026-02-25T09:43:13Z"
-}
-```
-
-### Common Error Codes
-
-| Code | HTTP | Description | Solution |
-|------|------|-------------|----------|
-| INVALID_REQUEST | 400 | Missing/invalid parameters | Check request format |
-| UNAUTHORIZED | 401 | Missing/invalid token | Provide valid Bearer token |
-| FORBIDDEN | 403 | Insufficient permissions | Check user role |
-| NOT_FOUND | 404 | Resource not found | Verify resource ID |
-| CONFLICT | 409 | Resource exists | Use different identifier |
-| RATE_LIMITED | 429 | Too many requests | Wait before retrying |
-| SERVER_ERROR | 500 | Internal error | Contact support |
-
----
-
-## Rate Limiting
-
-**Standard Users:** 1,000 requests/hour  
-**Admin Users:** 5,000 requests/hour  
-**Service Accounts:** 10,000 requests/hour
-
-**Rate Limit Headers:**
-```
-X-RateLimit-Limit: 1000
-X-RateLimit-Remaining: 999
-X-RateLimit-Reset: 1640995200
-```
-
-**When rate limited (429):**
-```json
-{
-  "error": {
-    "code": "RATE_LIMITED",
-    "message": "Rate limit exceeded",
-    "retryAfter": 3600
-  }
-}
-```
-
----
-
-## Examples by Language
-
-### JavaScript/Node.js
-```javascript
-const fetch = require('node-fetch');
-
-async function getHealth() {
-  const response = await fetch('https://api.desksos.local/v1/health', {
-    headers: { 'Authorization': 'Bearer YOUR_TOKEN' }
-  });
-  return response.json();
-}
-
-getHealth().then(console.log);
-```
-
-### Python
-```python
-import requests
-
-headers = {'Authorization': 'Bearer YOUR_TOKEN'}
-response = requests.get('https://api.desksos.local/v1/health', headers=headers)
-print(response.json())
-```
-
-### cURL
-```bash
-curl -X GET https://api.desksos.local/v1/health \
-  -H "Authorization: Bearer YOUR_TOKEN"
-```
-
-### PowerShell
 ```powershell
-$headers = @{'Authorization' = 'Bearer YOUR_TOKEN'}
-$response = Invoke-RestMethod -Uri 'https://api.desksos.local/v1/health' -Headers $headers
-$response | ConvertTo-Json
+$base = 'https://FORD-DC01:5543'
+$cred = Get-Credential -Message 'DeskSOS Enterprise'
+$login = Invoke-RestMethod "$base/api/auth/login" -Method Post -ContentType 'application/json' `
+  -Body (@{ email = $cred.UserName; password = $cred.GetNetworkCredential().Password } | ConvertTo-Json)
+$h = @{ Authorization = "Bearer $($login.token)" }
+Invoke-RestMethod "$base/api/incidents" -Headers $h | Select-Object -First 5 id, severity, status, title
+```
+
+**curl, development:**
+
+```bash
+TOKEN=$(curl -s localhost:5100/api/auth/login -H 'Content-Type: application/json' \
+  -d '{"email":"admin@desksos.local","password":"…"}' | jq -r .token)
+curl -s localhost:5100/api/incidents -H "Authorization: Bearer $TOKEN"
+```
+
+**Ingest test (development; the key is in `backend/server/.env`):**
+
+```bash
+curl -s localhost:5100/api/ingest/incidents -H "X-API-Key: $INGEST_API_KEY" -H 'Content-Type: application/json' \
+  -d '{"source":"manual-test","externalId":"test-1","title":"Test","description":"Ingest test","severity":"LOW"}'
 ```
 
 ---
 
-## Support & Resources
-
-- **Issues:** https://github.com/hneal055/DESKSOS-Desktop-App-/issues
-- **Email:** support@desksos.local
-- **Documentation:** https://docs.desksos.local
-
----
-
-**Last Updated:** 2026-02-25 | **API Version:** 1.0.0
+Last checked against the code: 2026-10-06.
