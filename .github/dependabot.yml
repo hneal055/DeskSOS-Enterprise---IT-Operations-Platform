@@ -1,0 +1,28 @@
+# Dependabot version updates (readiness plan task 4.4). Directories must match
+# the real layout: the backend is backend/server and the dashboard is client.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /backend/server
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      backend-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /client
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      client-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

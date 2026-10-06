@@ -3,8 +3,8 @@ name: CI
 on:
   push:
     branches: [main]
+  # Every PR, whatever its base branch, so stacked PRs are tested too (plan 4.3)
   pull_request:
-    branches: [main]
 
 jobs:
   server:
