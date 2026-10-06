@@ -63,12 +63,18 @@ try { db = new Database(process.argv[2], { readonly: true, fileMustExist: true }
 catch (e) { console.log(JSON.stringify({ error: e.message })); process.exit(0); }
 const integrity = db.pragma("integrity_check", { simple: true });
 const n = (t) => { try { return db.prepare(`SELECT COUNT(*) AS c FROM ${t}`).get().c; } catch { return -1; } };
-console.log(JSON.stringify({ integrity, incidents: n("incidents"), users: n("users"), events: n("incident_events") }));
+// An account that can read incidents right now, for the authenticated check below
+let reader = null;
+try { reader = db.prepare("SELECT id, role, token_version AS tv FROM users WHERE active = 1 AND must_change_password = 0 ORDER BY id LIMIT 1").get() ?? null; } catch {}
+console.log(JSON.stringify({ integrity, incidents: n("incidents"), users: n("users"), events: n("incident_events"), reader }));
 '@
     $counts = node -e $check (Join-Path $server 'node_modules\better-sqlite3') $db | ConvertFrom-Json
     if ($counts.error) { Result $false "not a readable SQLite database: $($counts.error) ($Backup)" }
     Write-Host ("Check:   integrity {0}; {1} incidents, {2} users, {3} history events" -f $counts.integrity, $counts.incidents, $counts.users, $counts.events)
     if ($counts.integrity -ne 'ok') { Result $false "integrity_check: $($counts.integrity) ($Backup)" }
+    foreach ($t in 'incidents', 'events') {
+        if ($counts.$t -lt 0) { Result $false "a required table is missing or unreadable ($t) ($Backup)" }
+    }
     if ($counts.users -lt 1) { Result $false "no user accounts in the backup ($Backup)" }
 
     # Serve it from a throwaway process: its own port, HTTP, temporary secret,
@@ -99,7 +105,28 @@ console.log(JSON.stringify({ integrity, incidents: n("incidents"), users: n("use
     $code = try { (Invoke-WebRequest "http://localhost:$Port/api/incidents" -TimeoutSec 5 -SkipHttpErrorCheck).StatusCode } catch { 0 }
     if ($code -ne 401) { Result $false "restored server: /api/incidents returned $code, expected 401 ($Backup)" }
 
-    Result $true ("{0}: integrity ok, {1} incidents, {2} users, {3} events; served healthy on :{4}" -f (Split-Path $Backup -Leaf), $counts.incidents, $counts.users, $counts.events, $Port)
+    # Signed in, the restored incidents must actually come back. The token is
+    # signed with this throwaway server's temporary secret for an existing
+    # account (it would be useless against production) and expires in 5 minutes.
+    $readNote = ''
+    if ($counts.reader) {
+        $env:DRILL_SECRET = $psi.Environment['JWT_SECRET']
+        $sign = 'const jwt=require(process.argv[1]);const [id,role,tv]=process.argv.slice(2);' +
+                'console.log(jwt.sign({sub:String(id),role,tv:Number(tv)},process.env.DRILL_SECRET,{algorithm:"HS256",expiresIn:"5m"}))'
+        $token = node -e $sign (Join-Path $server 'node_modules\jsonwebtoken') $counts.reader.id $counts.reader.role $counts.reader.tv
+        Remove-Item Env:DRILL_SECRET
+        $list = try { Invoke-RestMethod "http://localhost:$Port/api/incidents" -Headers @{ Authorization = "Bearer $token" } -TimeoutSec 10 } catch { $null }
+        $expected = [Math]::Min($counts.incidents, 500)   # the API returns the newest 500
+        $got = if ($null -eq $list) { -1 } else { @($list).Count }
+        if ($got -ne $expected) { Result $false "restored server returned $got incidents when signed in, expected $expected ($Backup)" }
+        $readNote = "; $got incidents read back signed in"
+    } elseif ($counts.incidents -gt 0) {
+        Result $false "no active account that can sign in, so the incidents couldn't be read back ($Backup)"
+    } else {
+        $readNote = '; signed-in read skipped (no incidents and no ready account)'
+    }
+
+    Result $true ("{0}: integrity ok, {1} incidents, {2} users, {3} events; served healthy on :{4}{5}" -f (Split-Path $Backup -Leaf), $counts.incidents, $counts.users, $counts.events, $Port, $readNote)
 }
 finally {
     if ($proc -and -not $proc.HasExited) { $proc.Kill($true); $proc.WaitForExit(5000) | Out-Null }

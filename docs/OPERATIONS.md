@@ -177,7 +177,7 @@ The drill:
 
 1. copies the backup to a temporary folder
 2. checks its integrity and counts the incidents, users and history events
-3. starts a throwaway server on port 5199 against the copy, and checks it's healthy and enforces sign-in
+3. starts a throwaway server on port 5199 against the copy, and checks it's healthy, enforces sign-in, and returns the backup's incidents to a signed-in request (using a short-lived token valid only for that throwaway server)
 4. cleans up
 
 The result is appended to `backend\server\logs\restore-drill.log`, ending in `PASS` or `FAIL`. Record the date and result in the plan's progress log.

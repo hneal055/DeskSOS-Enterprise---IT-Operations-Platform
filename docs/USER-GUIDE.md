@@ -135,7 +135,7 @@ Use **Log New Incident Ticket** for issues that don't come in through DeskSOS De
 | **Category** | Infrastructure, Database, Network or Security |
 | **Severity Level** | CRITICAL, HIGH, MEDIUM or LOW. **CRITICAL sets off the alarm on every open dashboard**, so use it only for urgent, business-stopping problems |
 | **Assigned To** | Pre-filled with `Node-Ops-Lead`. Change it to the person or team responsible |
-| **Latitude / Longitude** | Pre-filled with sample coordinates. Leave or clear them; they aren't used for anything else yet |
+| **Latitude / Longitude** | Pre-filled with **sample** coordinates. **Clear both** unless you enter the incident's real location; otherwise the sample location is saved with the incident |
 
 Click **Submit Ticket**. The form clears and the incident appears at the top of the stream.
 
