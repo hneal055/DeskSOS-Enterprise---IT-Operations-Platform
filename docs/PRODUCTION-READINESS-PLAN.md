@@ -284,6 +284,7 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 | 2026-10-06 | Desktop production password recovery (Desktop PR #8) | ✅ Merged and used |
 | 2026-10-06 | First operator account created (`howard`) | ⏳ Waiting on first sign-in (password change pending) |
 | 2026-10-06 | Email alerts (Gmail sender) | ⏸️ Deferred: Gmail rejects the login (`535 BadCredentials`); to be resolved later |
+| 2026-10-06 | Documentation and repository cleanup (finishes 0.7) | ✅ Verified (typecheck, 170 tests, build; no broken references) |
 
 ### 0.3 Enterprise backups capture real data
 
@@ -780,6 +781,41 @@ Each finding was checked against the code before acting. All 8 were valid. Fixed
   3. Re-save the password with `Get-Credential`, not `Read-Host -AsSecureString`: pasting into a hidden `Read-Host` prompt in the VS Code terminal stores a single control character.
 - **Pasting secrets:** hidden prompts in the VS Code terminal don't accept pastes, and copying a command overwrites a code already on the clipboard. A `Get-Credential` pop-up worked.
 - **Later:** invite and reset emails (one-time set-password link, not the password; links only work on the office LAN) will reuse this sender once it works.
+
+### Documentation and repository cleanup (2026-10-06)
+
+- **Why:**
+  - `docs/API_REFERENCE.md` and `openapi.yaml` (February 2026) described an API that never existed: `/v1` paths, `/services`, `/config`, `/deployments` and `/logs` endpoints, a user DELETE, roles `admin|user|viewer`, and different error shapes and rate limits. They omitted sign-in, incidents, ingest and Socket.IO.
+  - An audit of every other tracked file found only two current: `backup-desksos.ps1` and `.env.example`.
+  - **Task 0.7 had only removed the root compose files.** Copies under `backend/`, three Dockerfiles and two nginx trees were still tracked.
+- **Change:**
+  - `docs/API_REFERENCE.md` and `openapi.yaml` were rewritten from the code. They cover every real endpoint with roles, bodies, responses and errors, plus ingest idempotency, Socket.IO events, rate limits and examples.
+  - **Removed (48 files):**
+    - Outdated docs: `BACKEND_SETUP.md`, `DEPLOYMENT.md`, `DEPLOYMENT_STATUS.md` and `.github/WORKFLOWS.md`.
+    - The whole duplicate `backend/` layer: README, guides, `docs/`, `openapi.yaml`, three workflows GitHub never ran (one wasn't valid YAML), `.gitignore`, an empty lockfile and `scripts/`.
+    - Docker and nginx: both compose files, the server, client and frontend Dockerfiles, and both nginx trees.
+    - `postgres-init/`, both `generate-ssl.sh` copies, `scripts/DeskSOS-Validation.ps1`, and the old CRA `frontend/`.
+    - Stray files: `App (1).tsx` (empty), `App.tsx` (a Desktop component), `file-purpose-2.csv`, an empty `requirements.txt` and an empty root lockfile.
+    - `restructure-desksos.ps1`, which would rename `client` to `frontend` if run again.
+    - `start-backend.ps1` and `stop-backend.ps1`, replaced by start-dev and stop-dev.
+  - **Dead code:** removed `src/config/database.ts` (a Postgres pool imported by nothing), the unused `pg`, `redis` and `@types/pg` packages, and a `seed` script pointing at a missing file.
+  - **Updated:**
+    - `backend/server/README.md`, rewritten for SQLite, PM2 and port 5100. It had described Postgres, Docker and port 5000.
+    - `.env.example`, now with `TLS_CERT_PATH`, `TLS_KEY_PATH`, `SERVE_CLIENT`, `CLIENT_BUILD_PATH` and `ALLOW_HTTP_IN_PRODUCTION`.
+    - The README's project structure and configuration table, and its API links.
+- **Verification:**
+  - `npm run typecheck` clean, 170/170 tests pass, `npm run build` succeeds.
+  - `openapi.yaml` parses, with 15 operations and all 68 internal references resolving.
+  - Nothing remaining references a removed file (checked by search; `backup-desksos.ps1`, still used by `stop-dev.ps1`, was kept).
+  - CI uses only `backend/server` and `client`.
+- **Not touched:** untracked local leftovers that git ignores and that may contain old secrets:
+  - `frontend\.env` and `frontend
+ode_modules`
+  - `backend\.env`, `backend\.env.prod`, `backend\ssl` and `backendenv`
+  - the old clones `DeskSOS-Enterprise---IT-Operations-Platform\` and `DESKSOS_Backup_20260716_075823\`
+
+  The owner should decide whether to remove them.
+- **Goal impact:** *administrators* and developers now have one accurate set of documents (README, plan, API reference, OpenAPI, server README) and no misleading Docker or Postgres instructions. Supports the Operations go-live item (accurate runbooks).
 
 ### Correction (2026-10-05)
 

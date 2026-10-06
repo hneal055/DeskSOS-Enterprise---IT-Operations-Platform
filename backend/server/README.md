@@ -1,108 +1,63 @@
-# DESKSOS Enterprise - Backend Server
+# DeskSOS Enterprise: backend server
 
-Node.js + Express backend with Socket.io for real-time features and PostgreSQL database.
+This is the Express + TypeScript API behind the DeskSOS Enterprise dashboard. Incidents, users and history are stored in **SQLite** (better-sqlite3), and live updates go over **Socket.IO**.
 
-## Quick Start
+The [root README](../../README.md) is the main guide, covering setup, production, accounts, HTTPS and backups. The API is described in [docs/API_REFERENCE.md](../../docs/API_REFERENCE.md). This file covers working on the server itself.
 
-### Local Development
+## Run it
 
-1. **Install dependencies**
-   \`\`\`bash
-   npm install
-   \`\`\`
+Normally you start everything from the repository root with `.\start-dev.ps1`, in an Administrator window. That runs this server under PM2 as `desksos-enterprise-backend` on **port 5100**, and the dashboard on port 3000.
 
-2. **Setup environment**
-   \`\`\`bash
-   cp .env.example .env
-   # Edit .env with your configuration
-   \`\`\`
+To run the server on its own:
 
-3. **Run development server**
-   \`\`\`bash
-   npm run dev
-   \`\`\`
+```powershell
+cd backend\server
+npm ci
+copy .env.example .env      # then set JWT_SECRET (see the comments in the file)
+npm run dev                 # nodemon + ts-node, http://localhost:5100
+```
 
-   Server will start at \`http://localhost:5000\`
-
-### Docker Setup
-
-1. **Build and run with Docker Compose**
-   \`\`\`bash
-   cd ..
-   docker-compose up --build
-   \`\`\`
-
-2. **Services will be available at:**
-   - API Server: http://localhost:5000
-   - PostgreSQL: localhost:5432
-   - Redis: localhost:6379
-   - Nginx: http://localhost
-
-## API Endpoints
-
-### Dashboard
-- \`GET /api/dashboard\` - Dashboard metrics
-- \`GET /api/dashboard/metrics\` - Detailed metrics
-
-### Chat
-- \`GET /api/chat/channels\` - All channels
-- \`GET /api/chat/channels/:id/messages\` - Channel messages
-
-### Authentication
-- \`POST /api/auth/login\` - User login
-- \`POST /api/auth/register\` - User registration
-- \`POST /api/auth/logout\` - User logout
-
-### User
-- \`GET /api/user/me\` - Current user profile
-
-## WebSocket Events
-
-### Client → Server
-- \`user:join\` - User joins with profile
-- \`message:send\` - Send message (with callback)
-- \`user:typing\` - User is typing
-- \`user:typing:stop\` - User stopped typing
-
-### Server → Client
-- \`message:new\` - New message received
-- \`user:typing\` - User typing notification
-- \`user:typing:stop\` - User stopped typing notification
-- \`presence:update\` - Online users list updated
-
-## Project Structure
-
-\`\`\`
-src/
-├── config/       # Configuration files
-├── database/     # Database setup
-├── routes/       # API route definitions
-├── services/     # Business logic (Socket.io, auth, etc)
-├── middleware/   # Express middleware
-└── index.ts      # Application entry point
-\`\`\`
-
-## Environment Variables
-
-See \`.env.example\` for all available configuration options.
-
-Key variables:
-- \`NODE_ENV\` - Environment (development/production)
-- \`PORT\` - Server port (default: 5000)
-- \`JWT_SECRET\` - Secret for JWT tokens
-- \`DB_*\` - PostgreSQL connection parameters
+The first start creates `data/enterprise.db` and an admin account, `admin@desksos.local`. The one-time password is printed to the console.
 
 ## Scripts
 
-- \`npm run dev\` - Start development server with ts-node
-- \`npm run build\` - Compile TypeScript to JavaScript
-- \`npm start\` - Run compiled server (production)
+| Command | What it does |
+|---|---|
+| `npm run dev` | Development server with reload |
+| `npm run build` | Compile to `dist/` |
+| `npm start` | Run `dist/index.js` |
+| `npm test` | Jest + supertest (in-memory databases; doesn't touch `data/`) |
+| `npm run typecheck` | `tsc --noEmit` |
+| `npm run user:reset-password -- <email>` | New temporary password for an account; `--list` shows accounts. Set `DATABASE_PATH` for production |
 
-## Technologies
+**Operations scripts** in `scripts/`:
 
-- **Express** - Web framework
-- **Socket.io** - Real-time bidirectional communication
-- **PostgreSQL** - Relational database
-- **TypeScript** - Type-safe JavaScript
-- **JWT** - Token-based authentication
-- **Docker** - Containerization
+| Script | What it does |
+|---|---|
+| `backup-db.js` | Verified online backup |
+| `backup-prod.ps1` | Nightly production backup task |
+| `gen-cert.ps1` | HTTPS certificate from the local CA |
+| `monitor-health.ps1` | 5-minute health check and alerts |
+| `reset-password.js` | Account recovery (the npm script above) |
+
+## Layout
+
+```
+src/
+  index.ts            entry point: middleware, routes, Socket.IO, static dashboard
+  config/index.ts     settings from .env (and .env.production in production); refuses weak secrets
+  db.ts               SQLite schema and incident queries
+  users.ts            accounts, password hashing, token versions
+  audit.ts            incident history (incident_events)
+  logger.ts           winston: JSON logs, request log, security audit log
+  validation.ts       zod schemas for request bodies and params
+  static.ts           serves client/build in production
+  middleware/         auth (JWT + roles), apiKey (ingest), validate, security (helmet, rate limits), requestLog
+  routes/             auth, incidents, adminUsers, ingest; dashboard, chat, user return sample data
+  services/socket.ts  Socket.IO authentication and events
+tests/                Jest suites, including the route-discovery "no open endpoints" gate
+```
+
+## Configuration
+
+All settings are documented in [`.env.example`](.env.example) and in the root README's "Configuration" table. Production settings come from `ecosystem.config.js` (`env_production`) and the secrets file `.env.production`, which `start-production.ps1` creates.
