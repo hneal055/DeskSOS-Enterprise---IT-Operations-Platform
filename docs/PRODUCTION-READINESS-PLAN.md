@@ -228,15 +228,18 @@ This assumes one developer, with an administrator available for elevated steps, 
 
 ## 9. Next actions
 
-Updated 2026-10-06. Phases 0 and 1 are complete; Phase 2 is merged and running in production, and its exit gate needs only the reboot test.
+Updated 2026-10-06 (after the reboot test). Phases 0 and 1 are complete. Phase 2's reboot test passed; its exit gate still needs the dashboard checked from another LAN PC. Track A (runbook, guides, restore drill, bridge alerts, CI, Dependabot, Sentry hook) is done.
 
-1. Admin: **reboot test** (Phase 2 exit gate, plus Phase 0's boot task). Restart FORD-DC01, don't sign in for 5 minutes, then check that `https://FORD-DC01:5543` and Desktop's `https://FORD-DC01:5443/health` both respond.
-2. Admin: **trust the CA on the other LAN PCs** (task 2.3) and check that the dashboard loads there without a warning.
-3. Admin: **limit Desktop's firewall rule** ("DeskSOS Backend", TCP 5443) to `LocalSubnet` (decision D3).
-4. Owner: set your own Desktop admin password if it's still the reset one (`change-password.ps1`).
-5. Owner/Admin: **alert channel**. Email is deferred (see "Email alerts: deferred"); a Teams webhook is an alternative.
-6. Dev: Phase 3 (off-machine backup copies, restore drill, Enterprise runbook) and Phase 5 (a current Desktop release build; the one on FORD-DC01 is from 2026-10-03).
-7. Later: invite and password-reset emails for new users, once a sender works.
+1. Owner/Admin: **a working alert channel. This is the top priority.** Both production services were down for about 30 minutes on 2026-10-06 and nobody was told. A Teams webhook (decision D6) is quickest; email is deferred.
+2. Admin: **trust the CA on another LAN PC** and open the dashboard there. This is task 2.3 and the rest of Phase 2's exit gate.
+3. Dev: **health monitors restart a service that's down** (self-healing), and both runbooks say to start production only through the scheduled tasks.
+4. Admin: **off-machine backup share** (3.2, decision D5) and Desktop's restore drill (3.3).
+5. Owner: **code signing** (5.1, decision D4). This has the longest lead time.
+6. Owner: **branch protection** on `main` in both repos (4.6).
+7. Admin: **limit Desktop's firewall rule** ("DeskSOS Backend", TCP 5443) to `LocalSubnet` (decision D3), and turn off Fast Startup (`powercfg /h off`).
+8. Owner: set your own Desktop admin password if it's still the reset one, and choose 3–5 pilot PCs (5.4).
+9. Owner: Sentry DSN (3.5, optional), the support contact (6.4), and closing the stale Enterprise Dependabot PRs (#1, #3–#9).
+10. Later: invite and password-reset emails, once a sender works; the app issues found while writing the guides (see the Track A entry).
 
 ## 10. Progress and verification log
 
@@ -292,6 +295,8 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 | 2026-10-06 | 4.3 CI on every PR, both repos | ✅ Verified (a stacked PR triggered CI in each repo) |
 | 2026-10-06 | 4.4 Dependabot configuration, both repos | ✅ Config valid, all directories exist; GitHub-side check after merge |
 | 2026-10-06 | 3.5 Error tracking: Enterprise Sentry hook + `npm run sentry:test` | ✅ Verified against a local fake Sentry (173 tests); needs a real DSN to finish |
+| 2026-10-06 | Outage: both production services stopped at ~14:48 when the window running PM2 closed | ✅ Restored 15:16 via the scheduled tasks; nobody was alerted (email failing) |
+| 2026-10-06 | **Phase 2 reboot test** (plus Phase 0's boot task) | ✅ Passed: real reboot 15:17:44; both services came back on their own (tasks result 0). LAN-PC check still to do |
 
 ### 0.3 Enterprise backups capture real data
 
@@ -831,6 +836,29 @@ Each finding was checked against the code before acting. All 8 were valid. Fixed
 - **Goal impact:**
   - *Administrators* can run, upgrade, restore and secure Enterprise from one document, and prove backups restore in one command.
   - Moves forward the go-live items "Runbooks for both products cover…" and "Restore drill passed within the last 30 days" (Enterprise half).
+
+### Outage and reboot test (2026-10-06)
+
+- **Outage, about 14:48 to 15:16:**
+  - **What stopped:** both production services (Enterprise `:5543` and Desktop `:5443`). Enterprise's last request was at 14:47:46. Windows logged an app window closing at 14:48:23.
+  - **Cause:** the PM2 daemon had been started from an interactive Administrator window that morning. On Windows, the daemon dies with the console that started it, taking every app with it. `pm2.log` has no stop entries, just "New PM2 Daemon started" at 15:07, when Desktop production was rebuilt from another window, which then died the same way.
+  - **Detection:** both health monitors logged DOWN every 5 minutes, but **every alert failed** (Gmail 535), so nobody was told.
+  - **No data was lost.**
+  - **Restored at 15:16** with `Start-ScheduledTask "DeskSOS Backend Startup"` and `"DeskSOS Enterprise Startup"`. Both returned 0, and one daemon now runs both apps with no window attached.
+- **A restart that didn't happen:** a restart started from Settings at 15:13:07 was logged at 15:14:13 as "the attempt to restart … failed" (cancelled). `LastBootUpTime` still showed 2026-09-22. Fast Startup is also on (`HiberbootEnabled = 1`), so a *shutdown* and power-on resumes Windows rather than booting it.
+- **Reboot test, passed:**
+  - **The PC rebooted** at 15:17:44.
+  - **Desktop:** its startup task (boot trigger + 1 minute, S4U) ran at 15:19:00, *before* the first sign-in at 15:19:05. PM2 brought `desksos-backend` online at 15:19:39.
+  - **Enterprise:** its startup task (boot trigger + 3 minutes, S4U) ran at 15:21:00, and `desksos-enterprise` was online at 15:21:05.
+  - **Task results:** both 0. Both triggers are `MSFT_TaskBootTrigger` with S4U logon, so neither depends on anyone signing in.
+  - **After the reboot:** both `/health` ok, and Desktop's `/health/bridge` shows `pending 0, sent 3`.
+- **Also found:** before the restart, VS Code saved an old open copy of this plan over the current file, with some stray dictated words. It was restored from git; nothing committed was affected. Before closing VS Code, don't "save all" over files that have changed on disk; reload them first.
+- **Follow-ups (in §9):**
+  - a working alert channel first
+  - self-healing monitors
+  - "start production only through the scheduled tasks" in both runbooks
+  - Fast Startup off
+- **Goal impact:** the go-live item "Both services come back after a reboot without anyone signing in (tested)" is met. The Phase 2 exit gate still needs the dashboard checked over HTTPS from another LAN PC.
 
 ### Track A: user guides, bridge visibility, CI, Dependabot, error tracking (2026-10-06)
 
