@@ -104,7 +104,7 @@ powercfg /change hibernate-timeout-ac 0
 Get-NetFirewallRule -DisplayName 'Node.js JavaScript Runtime' | Set-NetFirewallRule -EdgeTraversalPolicy Block -RemoteAddress LocalSubnet
 ```
 
-The production scripts need **PowerShell 7**. From a Windows PowerShell 5.1 window, run them through it, e.g. `& "C:\Program Files\PowerShell\pwsh.exe" -NoProfile -File C:\Projects\DESKSOS\start-production.ps1 -SkipBuild`.
+The production scripts need **PowerShell 7**. From a Windows PowerShell 5.1 window, run them through it, e.g. `& "C:\Program Files\PowerShell\7\pwsh.exe" -NoProfile -File C:\Projects\DESKSOS\start-production.ps1 -SkipBuild`.
 
 **Start or restart production** from an Administrator **PowerShell 7** window:
 
@@ -194,19 +194,22 @@ The earlier Docker Compose files were removed because they no longer matched the
 DESKSOS/
 ├── backend/server/             # Express API (TypeScript)
 │   ├── src/
-│   │   ├── routes/             # incidents, ingest, auth, dashboard, chat, user
-│   │   ├── middleware/         # apiKey (ingest auth)
+│   │   ├── routes/             # auth, incidents, adminUsers, ingest (+ sample dashboard, chat, user)
+│   │   ├── middleware/         # auth, apiKey, validate, security, requestLog
 │   │   ├── services/socket.ts  # Socket.IO events
-│   │   ├── config/index.ts     # Loads backend/server/.env
+│   │   ├── config/index.ts     # Loads .env (and .env.production in production)
 │   │   ├── db.ts               # SQLite schema and queries
 │   │   └── index.ts            # Entry point
-│   ├── scripts/backup-db.js    # Verified online backup
+│   ├── scripts/                # backup-db.js, backup-prod.ps1, gen-cert.ps1, monitor-health.ps1, reset-password.js
+│   ├── ecosystem.config.js     # PM2 production settings
 │   ├── tests/                  # Jest + supertest
 │   └── .env.example
 ├── client/                     # React dashboard (Vite)
-├── docs/                       # Plans and API reference
+├── docs/                       # Readiness plan and API reference
+├── openapi.yaml                # Machine-readable API description
 ├── start-dev.ps1 / stop-dev.ps1        # Dev session start / teardown
-├── start-backend.ps1 / stop-backend.ps1
+├── start-production.ps1 / register-production-tasks.ps1  # Production start; boot, backup and monitor tasks
+├── rotate-ingest-key.ps1       # Pair or rotate the Desktop ingest key (-Production)
 └── backup-desksos.ps1          # Database backup
 ```
 
@@ -223,6 +226,7 @@ Copy `backend/server/.env.example` to `backend/server/.env`. That file is ignore
 | `INGEST_API_KEY` | Shared key DeskSOS Desktop sends as `X-API-Key`. Ingest is disabled while unset | unset |
 | `CORS_ORIGINS` | Browser origins allowed to use the API and socket (comma-separated) | `http://localhost:3000,http://localhost:3001` |
 | `RATE_LIMIT_API` / `_LOGIN` / `_INGEST` | Requests per IP per 15 minutes (sign-in: failed attempts per IP + email) | `600` / `10` / `2000` |
+| `LOG_LEVEL` | winston log level | `info` in production, `debug` otherwise |
 | `SERVE_CLIENT` | Serve the built dashboard (`client/build`) from this server | `true` in production, otherwise `false` |
 | `CLIENT_BUILD_PATH` | Where the built dashboard is | `client/build` |
 | `TLS_CERT_PATH` / `TLS_KEY_PATH` | HTTPS certificate and key (PEM, relative to `backend/server`). Both or neither; **required in production** | unset (HTTP) |
@@ -325,7 +329,7 @@ Signed-in requests send `Authorization: Bearer <token>`. Tokens last 8 hours and
 | `POST /api/ingest/incidents` | `X-API-Key` | Desktop intake, idempotent on `(source, externalId)` |
 | `GET /api/dashboard`, `/api/chat/*`, `/api/user/me` | any role | Sample data (placeholders) |
 
-Invalid input returns `400 { error, details[] }`. Details: [docs/API_REFERENCE.md](docs/API_REFERENCE.md) (outdated).
+Invalid input returns `400 { error, details[] }`. Full details, with request and response examples: [docs/API_REFERENCE.md](docs/API_REFERENCE.md); machine-readable: [openapi.yaml](openapi.yaml).
 
 **Socket.IO:** connect with `auth: { token }`; connections without a valid token are refused. Events (server → client): `incident:created`, `incident:updated`, `incident:locked`, `message:new`, `presence:update`, `user:typing`.
 
