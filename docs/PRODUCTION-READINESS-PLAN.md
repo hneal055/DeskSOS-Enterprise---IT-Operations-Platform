@@ -273,6 +273,7 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 | 2026-10-05 | 2.8 Desktop production → Enterprise production bridge | ✅ Verified end to end (Enterprise branch + Desktop PR #7); key pairing is an admin step |
 | 2026-10-05 | 2.5 and 2.6 Start on boot, firewall, backup and monitor tasks | ✅ Scripted and verified (on branch) |
 | 2026-10-05 | **Phase 2 merged; production running on FORD-DC01** | ✅ Verified (HTTPS, sign-in enforced, admin password changed, backup and monitor tasks result 0, firewall LAN-only); reboot test pending |
+| 2026-10-06 | Email alerts (Gmail sender) | ⏸️ Deferred: Gmail rejects the login (`535 BadCredentials`); to be resolved later |
 
 ### 0.3 Enterprise backups capture real data
 
@@ -720,6 +721,26 @@ Each finding was checked against the code before acting. All 8 were valid. Fixed
   - DeskSOS Desktop's own firewall rule ("DeskSOS Backend", TCP 5443) still allows any address; limit it to the LAN as well (decision D3).
   - If Windows shows the Node.js network prompt again (for example after a Node update), Allow creates a new unrestricted rule; limit it the same way.
 - **Goal impact:** Enterprise production is live for *users* on the office LAN over HTTPS, with real accounts and a changed admin password. *Administrators* get nightly backups and a health check without anyone signed in, and the dev and production services are no longer reachable from outside the LAN. Moves forward go-live items "HTTPS ... firewall limited to the LAN", "default and first-run passwords changed" and "daily backups running"; "services come back after a reboot" waits on the reboot test.
+
+### Email alerts: deferred (2026-10-06)
+
+- **Goal:** email outage alerts now (`monitor-health.ps1` already supports SMTP), and later invite and password-reset emails for new users. Enterprise sends no email today, so admins hand temporary passwords to users themselves.
+- **Done so far:**
+  - The owner created a dedicated sender, `desksos.alerts@gmail.com`, with 2-step verification and an app password.
+  - User-level environment variables for the Administrator account (which the monitor task runs as): `ALERT_SMTP_HOST=smtp.gmail.com`, `ALERT_SMTP_PORT=587`, `ALERT_SMTP_USER=desksos.alerts@gmail.com`, `ALERT_TO=hneal.foes@gmail.com`, and `ALERT_SMTP_PASS` (16 characters, app-password format).
+- **Blocked:**
+  - The connection, STARTTLS and TLS 1.3 to `smtp.gmail.com:587` all work, but Gmail answers `AUTH` with **`535 5.7.8 BadCredentials`**, including with a second app password created in an Incognito window signed in to the new account.
+  - `Send-MailMessage` reports this only as "connection was closed".
+  - Likely causes:
+    - Google holding a new account's SMTP sign-in as suspicious: check the account's inbox and `myaccount.google.com/notifications` for a blocked-sign-in alert and approve it.
+    - A delay before a new account's app password works.
+- **Effect until resolved:** in an outage, the monitor still logs DOWN and Recovered, but each email attempt fails, is logged as "Email failed", and retries on the next run. Nobody is notified.
+- **To resume:**
+  1. Approve any blocked sign-in, then retest the SMTP login. Diagnose with a raw `AUTH PLAIN` exchange, because `Send-MailMessage` hides Gmail's reply.
+  2. If it still fails, use an established account's app password, or set `ALERT_TEAMS_WEBHOOK_URL` instead.
+  3. Re-save the password with `Get-Credential`, not `Read-Host -AsSecureString`: pasting into a hidden `Read-Host` prompt in the VS Code terminal stores a single control character.
+- **Pasting secrets:** hidden prompts in the VS Code terminal don't accept pastes, and copying a command overwrites a code already on the clipboard. A `Get-Credential` pop-up worked.
+- **Later:** invite and reset emails (one-time set-password link, not the password; links only work on the office LAN) will reuse this sender once it works.
 
 ### Correction (2026-10-05)
 
