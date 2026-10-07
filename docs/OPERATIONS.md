@@ -327,6 +327,16 @@ Copy `backend\server\certs\desksos-ca.crt` (the **public** certificate) to the P
 Import-Certificate -FilePath .\desksos-ca.crt -CertStoreLocation Cert:\LocalMachine\Root
 ```
 
+**Or with the wizard:** double-click `desksos-ca.crt` → **Install Certificate**.
+
+1. Choose **Local Machine** and approve the admin prompt.
+2. Choose **"Place all certificates in the following store"** → **Browse** → **Trusted Root Certification Authorities**. Don't use "Automatically select": it doesn't put the certificate in Trusted Root.
+3. Click **Finish**. If a security warning shows the thumbprint `E2EC9250F1D17D362FFAEA3C20C28C530418C4BB`, click **Yes**.
+
+Then **close every browser window**, including any browser icon in the system tray, and reopen it. Browsers cache certificate decisions.
+
+To check that a PC trusts it: `Get-ChildItem Cert:\LocalMachine\Root | Where-Object Thumbprint -eq 'E2EC9250F1D17D362FFAEA3C20C28C530418C4BB'`
+
 Check by opening `https://FORD-DC01:5543` in Edge or Chrome on that PC: there should be no warning.
 
 - **Firefox** also needs `security.enterprise_roots.enabled = true` in `about:config`.

@@ -228,13 +228,13 @@ This assumes one developer, with an administrator available for elevated steps, 
 
 ## 9. Next actions
 
-Updated 2026-10-06 (after the reboot test). Phases 0 and 1 are complete. Phase 2's reboot test passed; its exit gate still needs the dashboard checked from another LAN PC. Track A (runbook, guides, restore drill, bridge alerts, CI, Dependabot, Sentry hook) is done.
+Updated 2026-10-07. **Phases 0, 1 and 2 are complete.** Phase 2's exit gate passed: the reboot test on 2026-10-06, and a LAN PC opening and signing in to the dashboard on 2026-10-07. Track A (runbook, guides, restore drill, bridge alerts, CI, Dependabot, Sentry hook) is done. From Phase 3 and Track B: alerts, self-healing, the Desktop firewall rule, Fast Startup and branch protection are done.
 
 1. ~~Owner/Admin: a working alert channel.~~ **Done 2026-10-07:** both monitors alert to Discord, verified with a real outage (see "Alerts to Discord").
-2. Admin: **trust the CA on another LAN PC** and open the dashboard there. This is task 2.3 and the rest of Phase 2's exit gate.
+2. ~~Admin: trust the CA on another LAN PC and open the dashboard there.~~ **Done 2026-10-07:** the PC at 192.168.12.137 (Wi-Fi) trusts the CA, loads `https://FORD-DC01:5543` without a warning, and signed in as admin. Repeat the CA import (runbook §8.2) on every other PC that will use the dashboard.
 3. ~~Dev: health monitors restart a service that's down.~~ **Done 2026-10-07:** self-healing is live in both monitors and was verified with a real stop (see "Self-healing monitors").
 4. Admin: **off-machine backup share** (3.2, decision D5) and Desktop's restore drill (3.3).
-5. Owner: **code signing** (5.1, decision D4). This has the longest lead time.
+5. Owner: **code signing** (5.1, decision D4). This has the longest lead time.
 6. ~~Owner: branch protection.~~ **Done 2026-10-07** (4.6): `main` in both repos requires a pull request and passing CI, including for admins. 0 approvals required for now, because a sole developer can't approve their own PR; raise it to 1 when a second reviewer joins.
 7. ~~Admin: limit Desktop's firewall rule; turn off Fast Startup.~~ **Done 2026-10-07:** "DeskSOS Backend" is now `LocalSubnet` on every profile, matching Enterprise's rule, and Fast Startup is off (`HiberbootEnabled = 0`, hibernation unavailable). Desktop still answers via `192.168.12.196` and `FORD-DC01`.
 8. Owner: set your own Desktop admin password if it's still the reset one, and choose 3–5 pilot PCs (5.4).
@@ -300,6 +300,7 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 | 2026-10-07 | 3.4 Alerts for both products (Discord) | ✅ Verified: a real stop of Enterprise production → DOWN in Discord from the scheduled monitor; restart → Recovered |
 | 2026-10-07 | Desktop firewall rule limited to the LAN (D3); Fast Startup off | ✅ Verified (rule `LocalSubnet`/`Any`; `HiberbootEnabled 0`; both services reachable) |
 | 2026-10-07 | 4.6 Branch protection on `main`, both repos | ✅ Verified: a direct push to `main` was rejected (`GH006: Changes must be made through a pull request`; 2 of 2 required checks) |
+| 2026-10-07 | 2.3 Dashboard over HTTPS from a LAN PC: **Phase 2 exit gate** | ✅ Passed: 192.168.12.137 (Wi-Fi) after importing the CA. No warning; `auth.login` as admin at 09:42:26; incidents loaded. **Phase 2 complete** |
 | 2026-10-07 | Self-healing monitors and maintenance mode (both products) | ✅ Verified live: Enterprise stopped → restarted by the monitor on the 2nd check, healthy 5 s later, no manual action |
 
 ### 0.3 Enterprise backups capture real data
@@ -840,6 +841,18 @@ Each finding was checked against the code before acting. All 8 were valid. Fixed
 - **Goal impact:**
   - *Administrators* can run, upgrade, restore and secure Enterprise from one document, and prove backups restore in one command.
   - Moves forward the go-live items "Runbooks for both products cover…" and "Restore drill passed within the last 30 days" (Enterprise half).
+
+### Phase 2 exit gate passed; Phase 2 complete (2026-10-07)
+
+- **Test:** a second office PC on the same Wi-Fi (192.168.12.137) opened `https://FORD-DC01:5543`.
+- **First attempt:** `NET::ERR_CERT_AUTHORITY_INVALID`. The network and firewall were fine; the PC simply didn't trust the DeskSOS CA yet.
+- **Fix:** the owner imported `backend\server\certs\desksos-ca.crt` with the Certificate Import Wizard: **Local Machine** → "Place all certificates in the following store" → **Trusted Root Certification Authorities**, thumbprint `E2EC9250F1D17D362FFAEA3C20C28C530418C4BB`. Then the browser was fully restarted.
+- **Result:** the dashboard loaded with no warning. After two failed attempts, Enterprise's log shows `auth.login` for `admin@desksos.local` from `::ffff:192.168.12.137` at 09:42:26, then `GET /api/incidents 200`.
+- **Lessons for the runbook and user guide:**
+  - In the wizard, the store must be chosen by hand. "Automatically select" doesn't put it in Trusted Root.
+  - Browsers must be fully closed, including from the tray, after importing.
+  - The Enterprise account is `admin@desksos.local`, not the Desktop app's `.com` account.
+- **Phase 2 status: complete.** Every task (2.1–2.8) is verified, and the exit gate (a reboot test plus HTTPS from a LAN PC) is passed. Every other PC that uses the dashboard needs the same one-time CA import.
 
 ### Self-healing monitors (2026-10-07)
 
