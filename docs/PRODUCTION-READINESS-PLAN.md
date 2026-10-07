@@ -56,7 +56,7 @@ Principles:
 | D3 | **Office LAN only** (firewall rule scoped to the local network) |
 | D4 | **Azure Trusted Signing**, or a public OV certificate if Azure isn't available |
 | D5 | **Network share on another PC or NAS** for off-machine backups |
-| D6 | **Teams webhook** for alerts |
+| D6 | **Teams webhook** for alerts. *Changed 2026-10-07 to a **Discord** webhook: the organization uses Teams (free), which has no webhooks or Workflows.* |
 
 Each can still be revisited before the phase that depends on it. The options and reasoning considered:
 
@@ -230,7 +230,7 @@ This assumes one developer, with an administrator available for elevated steps, 
 
 Updated 2026-10-06 (after the reboot test). Phases 0 and 1 are complete. Phase 2's reboot test passed; its exit gate still needs the dashboard checked from another LAN PC. Track A (runbook, guides, restore drill, bridge alerts, CI, Dependabot, Sentry hook) is done.
 
-1. Owner/Admin: **a working alert channel. This is the top priority.** Both production services were down for about 30 minutes on 2026-10-06 and nobody was told. A Teams webhook (decision D6) is quickest; email is deferred.
+1. ~~Owner/Admin: a working alert channel.~~ **Done 2026-10-07:** both monitors alert to Discord, verified with a real outage (see "Alerts to Discord").
 2. Admin: **trust the CA on another LAN PC** and open the dashboard there. This is task 2.3 and the rest of Phase 2's exit gate.
 3. Dev: **health monitors restart a service that's down** (self-healing), and both runbooks say to start production only through the scheduled tasks.
 4. Admin: **off-machine backup share** (3.2, decision D5) and Desktop's restore drill (3.3).
@@ -297,6 +297,7 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 | 2026-10-06 | 3.5 Error tracking: Enterprise Sentry hook + `npm run sentry:test` | ✅ Verified against a local fake Sentry (173 tests); needs a real DSN to finish |
 | 2026-10-06 | Outage: both production services stopped at ~14:48 when the window running PM2 closed | ✅ Restored 15:16 via the scheduled tasks; nobody was alerted (email failing) |
 | 2026-10-06 | **Phase 2 reboot test** (plus Phase 0's boot task) | ✅ Passed: real reboot 15:17:44; both services came back on their own (tasks result 0). LAN-PC check still to do |
+| 2026-10-07 | 3.4 Alerts for both products (Discord) | ✅ Verified: a real stop of Enterprise production → DOWN in Discord from the scheduled monitor; restart → Recovered |
 
 ### 0.3 Enterprise backups capture real data
 
@@ -836,6 +837,23 @@ Each finding was checked against the code before acting. All 8 were valid. Fixed
 - **Goal impact:**
   - *Administrators* can run, upgrade, restore and secure Enterprise from one document, and prove backups restore in one command.
   - Moves forward the go-live items "Runbooks for both products cover…" and "Restore drill passed within the last 30 days" (Enterprise half).
+
+### Alerts to Discord (2026-10-07)
+
+- **Why Discord:** decision D6 chose a Teams webhook, but the organization uses **Teams (free)**, which has no Workflows or incoming webhooks. Gmail still rejects the sender's login (`535`). The owner chose a **Discord** channel webhook instead: a private "DeskSOS Alerts" server, with phone notifications through the Discord app.
+- **Changes (Enterprise PR #29, Desktop PR #29):**
+  - **New channel:** both health monitors gained `ALERT_DISCORD_WEBHOOK_URL`, a plain message with mentions disabled and the length capped below Discord's 2,000-character limit. Desktop's monitor, which could only email, also gained Teams, so both products now support the same channels.
+  - **Delivery rule changed:** an alert now counts as **delivered if any channel succeeds**. Previously, one broken channel (Gmail) kept the state unchanged, so a working channel would have repeated the alert every 5 minutes. It's retried only if every channel failed.
+  - The webhook URL is stored as a user-level environment variable, entered through a `Get-Credential` pop-up and never shown.
+- **Verification:**
+  - **Fake endpoints:** with Teams or Discord working and email refused, there was exactly one message per outage, then "Still down". With every channel failing, the alert was retried on the next run.
+  - **Payload:** username `DeskSOS`, `allowed_mentions.parse = []`, about 250 characters.
+  - **Live drill:** both monitors' real code sent DOWN and Recovered to the Discord channel (temporary log folders, so the production monitor state wasn't touched).
+  - **Real outage test:** the owner ran `pm2 stop desksos-enterprise`. The **scheduled** "DeskSOS Enterprise Health Monitor" task (result 0) logged `ALERT: DOWN` and `Sent to Discord` at 07:57:38. `Start-ScheduledTask "DeskSOS Enterprise Startup"` restored it in about 48 seconds, in the same PM2 daemon. The next monitor run logged `ALERT: Recovered` and `Sent to Discord` at 07:59:34, and the state returned to `up: true`.
+- **Remaining:**
+  - Email is still configured and failing. Each alert also logs `Email failed`, which is harmless now. Fix Gmail or remove the `ALERT_SMTP_*` variables.
+  - The alert channel lives on this PC. If the PC itself dies, no alert is sent. A check from a second machine, or an external uptime service (LAN only, so it would need an agent), is a later improvement.
+- **Goal impact:** go-live item "Health monitor and alerts tested by stopping each service" is met for Enterprise. Desktop's monitor uses the same channel and code and was drill-tested, but not yet stopped for real. *Administrators* now hear about an outage within 5 minutes on their phone, instead of not at all, as happened on 2026-10-06.
 
 ### Outage and reboot test (2026-10-06)
 
