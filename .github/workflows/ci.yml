@@ -53,6 +53,10 @@ jobs:
       - name: Install
         run: npm ci
 
+      - name: Test
+        # Vitest + Testing Library (plan task 4.1)
+        run: npm test
+
       - name: Build
         run: npm run build
 

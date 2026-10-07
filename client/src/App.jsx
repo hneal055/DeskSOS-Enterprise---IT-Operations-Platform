@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import { apiFetch, getToken } from './auth';
 import UsersAdmin from './UsersAdmin';
+import { incidentMetrics } from './metrics';
 
 const API_BASE = ''; // Leverages the package.json proxy to bypass CORS
 
@@ -29,10 +30,13 @@ export default function App({ user, onSignOut, onSessionEnded, onChangePassword 
   const [ticketDescription, setTicketDescription] = useState('');
   const [ticketCategory, setTicketCategory] = useState('Infrastructure');
   const [ticketSeverity, setTicketSeverity] = useState('MEDIUM');
-  const [ticketLatitude, setTicketLatitude] = useState('34.0522');
-  const [ticketLongitude, setTicketLongitude] = useState('-118.2437');
-  const [ticketAssignedTo, setTicketAssignedTo] = useState('Node-Ops-Lead');
+  // Optional fields start empty: the server stores "Unassigned" and no
+  // location when they're left blank
+  const [ticketLatitude, setTicketLatitude] = useState('');
+  const [ticketLongitude, setTicketLongitude] = useState('');
+  const [ticketAssignedTo, setTicketAssignedTo] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
   const [history, setHistory] = useState([]);
 
   // Load the selected incident's history; reload when its status or lock
@@ -212,6 +216,7 @@ export default function App({ user, onSignOut, onSessionEnded, onChangePassword 
     }
 
     setIsSubmitting(true);
+    setSubmitError('');
 
     try {
       const response = await apiFetch(`${API_BASE}/api/incidents`, {
@@ -233,11 +238,15 @@ export default function App({ user, onSignOut, onSessionEnded, onChangePassword 
       if (response.ok) {
         setTicketTitle('');
         setTicketDescription('');
-      } else {
-        console.error('Failed to log incident');
+      } else if (response.status !== 401) {
+        // (401 signs out and is handled by apiFetch.) Keep what was typed and
+        // say why, using the server's validation details when there are any
+        const body = await response.json().catch(() => ({}));
+        const why = Array.isArray(body.details) && body.details.length ? body.details.join('; ') : body.error;
+        setSubmitError(`The incident wasn't logged${why ? `: ${why}` : ` (error ${response.status})`}. Your text is kept; fix it and submit again.`);
       }
     } catch (error) {
-      console.error('Error submitting incident ticket:', error);
+      setSubmitError("The incident wasn't logged: the server couldn't be reached. Your text is kept; check Gateway and submit again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -262,11 +271,8 @@ export default function App({ user, onSignOut, onSessionEnded, onChangePassword 
     }
   };
 
-  // Metric Calculations
-  const criticalCount = incidents.filter(i => i.severity === 'CRITICAL').length;
-  const highCount = incidents.filter(i => i.severity === 'HIGH').length;
-  const totalActive = incidents.filter(i => i.status !== 'Resolved').length;
-  const resolvedCount = incidents.filter(i => i.status === 'Resolved').length;
+  // Metric Calculations (Critical/High count open incidents only)
+  const { critical: criticalCount, high: highCount, active: totalActive, resolved: resolvedCount } = incidentMetrics(incidents);
 
   return (
     <div className={`min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans transition-colors duration-300 ${isStrobing ? 'border-4 border-rose-500' : ''}`}>
@@ -439,8 +445,9 @@ export default function App({ user, onSignOut, onSessionEnded, onChangePassword 
                     <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Assigned To</label>
                     <input 
                       type="text" 
-                      value={ticketAssignedTo} 
+                      value={ticketAssignedTo}
                       onChange={(e) => setTicketAssignedTo(e.target.value)}
+                      placeholder="Unassigned"
                       className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-white text-sm focus:outline-none focus:border-purple-500"
                     />
                   </div>
@@ -448,8 +455,9 @@ export default function App({ user, onSignOut, onSessionEnded, onChangePassword 
                     <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Latitude</label>
                     <input 
                       type="text" 
-                      value={ticketLatitude} 
+                      value={ticketLatitude}
                       onChange={(e) => setTicketLatitude(e.target.value)}
+                      placeholder="Optional"
                       className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-white text-sm focus:outline-none focus:border-purple-500"
                     />
                   </div>
@@ -457,8 +465,9 @@ export default function App({ user, onSignOut, onSessionEnded, onChangePassword 
                     <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Longitude</label>
                     <input 
                       type="text" 
-                      value={ticketLongitude} 
+                      value={ticketLongitude}
                       onChange={(e) => setTicketLongitude(e.target.value)}
+                      placeholder="Optional"
                       className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-white text-sm focus:outline-none focus:border-purple-500"
                     />
                   </div>
@@ -471,6 +480,11 @@ export default function App({ user, onSignOut, onSessionEnded, onChangePassword 
                 >
                   {isSubmitting ? 'Transmitting Ticket...' : 'Submit Ticket'}
                 </button>
+                {submitError && (
+                  <p role="alert" className="text-xs text-rose-300 bg-rose-950/60 border border-rose-800 rounded p-2">
+                    {submitError}
+                  </p>
+                )}
               </form>
             </div>
             )}
