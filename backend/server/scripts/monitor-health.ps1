@@ -71,23 +71,26 @@ function Send-Email([string]$Subject, [string]$Body) {
         -Subject "[DeskSOS Enterprise] $Subject" -Body $Body -WarningAction SilentlyContinue -ErrorAction Stop
 }
 
-# Returns $false if a configured channel failed, so the caller keeps the old
-# state and the alert is retried on the next run.
+# Returns $false only if every configured channel failed, so the caller keeps
+# the old state and the alert is retried on the next run. If at least one
+# channel delivered it, someone has been told: retrying would only repeat the
+# alert on the working channel every run (e.g. Teams fine, email broken).
 function Send-Alert([string]$Subject, [string]$Body) {
     Write-Log "ALERT: $Subject"
-    $channels = 0; $ok = $true
+    $channels = 0; $delivered = 0
     if ($env:ALERT_TEAMS_WEBHOOK_URL) {
         $channels++
-        try { Send-Teams $Subject $Body; Write-Log "  Sent to Teams" }
-        catch { $ok = $false; Write-Log "  Teams failed: $($_.Exception.Message) (will retry next run)" }
+        try { Send-Teams $Subject $Body; $delivered++; Write-Log "  Sent to Teams" }
+        catch { Write-Log "  Teams failed: $($_.Exception.Message)" }
     }
     if ($env:ALERT_SMTP_HOST -and $env:ALERT_TO -and $env:ALERT_SMTP_USER) {
         $channels++
-        try { Send-Email $Subject $Body; Write-Log "  Sent by email" }
-        catch { $ok = $false; Write-Log "  Email failed: $($_.Exception.Message) (will retry next run)" }
+        try { Send-Email $Subject $Body; $delivered++; Write-Log "  Sent by email" }
+        catch { Write-Log "  Email failed: $($_.Exception.Message)" }
     }
-    if ($channels -eq 0) { Write-Log "  (no alert channel configured; set ALERT_TEAMS_WEBHOOK_URL or ALERT_SMTP_*)" }
-    return $ok
+    if ($channels -eq 0) { Write-Log "  (no alert channel configured; set ALERT_TEAMS_WEBHOOK_URL or ALERT_SMTP_*)"; return $true }
+    if ($delivered -eq 0) { Write-Log "  No channel delivered the alert (will retry next run)"; return $false }
+    return $true
 }
 
 $state = if (Test-Path $stateFile) { Get-Content $stateFile -Raw | ConvertFrom-Json -AsHashtable } else { @{} }
