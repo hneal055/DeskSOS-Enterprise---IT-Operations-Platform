@@ -130,8 +130,14 @@ try {
     $detail = $_.Exception.Message
 }
 
+# Self-healing acts only when the monitored server is this machine: the
+# restart task and the MAINTENANCE file are local to wherever this runs.
+$targetHost = ([uri]$Url).Host.Trim('[', ']')
+$localNames = @('localhost', '127.0.0.1', '::1', $env:COMPUTERNAME) +
+    @(Get-NetIPAddress -ErrorAction SilentlyContinue | ForEach-Object { $_.IPAddress })
+$healLocal = $localNames -contains $targetHost   # case-insensitive
 $maintenance = Test-Path (Join-Path $LogDir "MAINTENANCE")
-$healNote = if (-not $RestartTask) { "" }
+$healNote = if (-not $RestartTask -or -not $healLocal) { "" }
     elseif ($maintenance) { "`n`nMaintenance mode (logs\MAINTENANCE exists): it will NOT be restarted automatically." }
     else { "`n`nIf it's still down at the next check, it will be restarted automatically." }
 
@@ -153,6 +159,9 @@ $now = Get-Date
 $recent = @($state.restarts | Where-Object { $_ -and ([datetime]$_) -gt $now.AddHours(-1) })
 if ($isUp) {
     $state.gaveUp = $false
+    $state.taskMissingAlerted = $false
+} elseif ($RestartTask -and -not $healLocal) {
+    Write-Log "Self-healing: off, because $targetHost isn't this machine (restarts only work on the server itself)"
 } elseif ($RestartTask) {
     if ($maintenance) {
         Write-Log "Maintenance mode (MAINTENANCE file present): not restarting"
@@ -169,7 +178,13 @@ if ($isUp) {
     } else {
         $task = Get-ScheduledTask -TaskName $RestartTask -ErrorAction SilentlyContinue
         if (-not $task) {
-            Write-Log "Self-healing: task '$RestartTask' not found; not restarting"
+            if (-not $state.taskMissingAlerted) {
+                if (Send-Alert "Automatic restart unavailable" "The scheduled task '$RestartTask' doesn't exist on $env:COMPUTERNAME, so the service can't be restarted automatically. Register it again (see the runbook), then start it.") {
+                    $state.taskMissingAlerted = $true
+                }
+            } else {
+                Write-Log "Self-healing: task '$RestartTask' not found; not restarting"
+            }
         } elseif ($task.State -eq 'Running') {
             Write-Log "Self-healing: '$RestartTask' is already running; waiting"
         } else {
