@@ -65,12 +65,12 @@ If an administrator changes your role, resets your password or deactivates you, 
 
 | Counter | Counts |
 |---|---|
-| **Critical Alerts** | Incidents with severity CRITICAL, **including resolved ones** |
-| **High Severity** | Incidents with severity HIGH, including resolved ones |
-| **Total Active** | Incidents that aren't Resolved: your open workload |
+| **Critical Alerts** | Open incidents (not Resolved) with severity CRITICAL |
+| **High Severity** | Open incidents with severity HIGH |
+| **Total Active** | All incidents that aren't Resolved: your open workload |
 | **Resolved (Cycle)** | Resolved incidents |
 
-Use **Total Active** to judge the current workload. Critical Alerts and High Severity don't drop when an incident is resolved.
+Resolving an incident lowers Critical Alerts or High Severity straight away.
 
 **Panels:**
 
@@ -134,13 +134,12 @@ Use **Log New Incident Ticket** for issues that don't come in through DeskSOS De
 | **Detailed Description** | Required. What happened, what's affected, what you've tried |
 | **Category** | Infrastructure, Database, Network or Security |
 | **Severity Level** | CRITICAL, HIGH, MEDIUM or LOW. **CRITICAL sets off the alarm on every open dashboard**, so use it only for urgent, business-stopping problems |
-| **Assigned To** | Pre-filled with `Node-Ops-Lead`. Change it to the person or team responsible |
-| **Latitude / Longitude** | Pre-filled with **sample** coordinates. **Clear both** unless you enter the incident's real location; otherwise the sample location is saved with the incident |
+| **Assigned To** | Optional. The person or team responsible; left blank, it's saved as "Unassigned" |
+| **Latitude / Longitude** | Optional. The incident's location, if it matters; leave blank otherwise |
 
 Click **Submit Ticket**. The form clears and the incident appears at the top of the stream.
 
-- **If it doesn't appear,** the server didn't accept it. Check **Gateway: Online** and try again.
-- **Your typing is kept** when this happens, because the form only clears on success.
+If the server doesn't accept it, a red message under the button says why (for example, a title that's too long, or that the server couldn't be reached). Your text is kept, so fix it and submit again.
 
 ---
 

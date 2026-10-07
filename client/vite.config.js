@@ -21,4 +21,11 @@ export default defineConfig({
     outDir: 'build',
     emptyOutDir: true,
   },
+  // Vitest + Testing Library (plan task 4.1)
+  test: {
+    environment: 'jsdom',
+    // Separate worker processes time out starting on Windows; threads don't
+    pool: 'threads',
+    setupFiles: './src/test/setup.js',
+  },
 });
