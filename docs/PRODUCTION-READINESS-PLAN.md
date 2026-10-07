@@ -233,8 +233,8 @@ Updated 2026-10-07. **Phases 0, 1 and 2 are complete.** Phase 2's exit gate pass
 1. ~~Owner/Admin: a working alert channel.~~ **Done 2026-10-07:** both monitors alert to Discord, verified with a real outage (see "Alerts to Discord").
 2. ~~Admin: trust the CA on another LAN PC and open the dashboard there.~~ **Done 2026-10-07:** the PC at 192.168.12.137 (Wi-Fi) trusts the CA, loads `https://FORD-DC01:5543` without a warning, and signed in as admin. Repeat the CA import (runbook §8.2) on every other PC that will use the dashboard.
 3. ~~Dev: health monitors restart a service that's down.~~ **Done 2026-10-07:** self-healing is live in both monitors and was verified with a real stop (see "Self-healing monitors").
-4. Admin: **off-machine backup share** (3.2, decision D5) and Desktop's restore drill (3.3).
-5. Dev/Admin: **code signing for the local office** (5.1, revised D4): a self-made code-signing certificate, signing added to the Desktop build, and the certificate trusted on each office PC with the DeskSOS CA. Azure is deferred until production-ready.
+4. Admin: **off-machine backup share** (3.2, decision D5) and Desktop's restore drill (3.3).
+5. ~~Dev/Admin: code signing for the local office.~~ **Done 2026-10-07** (5.1, Desktop PR #31): signed release **DeskSOS 1.1.0** is installed and working on the second office PC. Azure is deferred until production-ready. **Next for Phase 5:** pilot on 3–5 PCs (5.4) with the 1.1.0 release folder.
 6. ~~Owner: branch protection.~~ **Done 2026-10-07** (4.6): `main` in both repos requires a pull request and passing CI, including for admins. 0 approvals required for now, because a sole developer can't approve their own PR; raise it to 1 when a second reviewer joins.
 7. ~~Admin: limit Desktop's firewall rule; turn off Fast Startup.~~ **Done 2026-10-07:** "DeskSOS Backend" is now `LocalSubnet` on every profile, matching Enterprise's rule, and Fast Startup is off (`HiberbootEnabled = 0`, hibernation unavailable). Desktop still answers via `192.168.12.196` and `FORD-DC01`.
 8. Owner: set your own Desktop admin password if it's still the reset one, and choose 3–5 pilot PCs (5.4).
@@ -301,6 +301,7 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 | 2026-10-07 | Desktop firewall rule limited to the LAN (D3); Fast Startup off | ✅ Verified (rule `LocalSubnet`/`Any`; `HiberbootEnabled 0`; both services reachable) |
 | 2026-10-07 | 4.6 Branch protection on `main`, both repos | ✅ Verified: a direct push to `main` was rejected (`GH006: Changes must be made through a pull request`; 2 of 2 required checks) |
 | 2026-10-07 | 2.3 Dashboard over HTTPS from a LAN PC: **Phase 2 exit gate** | ✅ Passed: 192.168.12.137 (Wi-Fi) after importing the CA. No warning; `auth.login` as admin at 09:42:26; incidents loaded. **Phase 2 complete** |
+| 2026-10-07 | 5.1 Signed Desktop release 1.1.0 (self-made certificate, revised D4) | ✅ Verified: all outputs signed and timestamped; a tampered byte is caught; installed on 192.168.12.137, signed in at 10:43:43 and in use |
 | 2026-10-07 | Self-healing monitors and maintenance mode (both products) | ✅ Verified live: Enterprise stopped → restarted by the monitor on the 2nd check, healthy 5 s later, no manual action |
 
 ### 0.3 Enterprise backups capture real data
@@ -841,6 +842,30 @@ Each finding was checked against the code before acting. All 8 were valid. Fixed
 - **Goal impact:**
   - *Administrators* can run, upgrade, restore and secure Enterprise from one document, and prove backups restore in one command.
   - Moves forward the go-live items "Runbooks for both products cover…" and "Restore drill passed within the last 30 days" (Enterprise half).
+
+### 5.1 Signed Desktop release 1.1.0 (2026-10-07)
+
+- **Decision D4, revised:** while DeskSOS stays in the local office, use a self-made code-signing certificate. Revisit Azure Artifact Signing (≈$9.99/month, eligibility limited to established US/Canada organizations) once the platform is production-ready.
+- **The certificate:** "DeskSOS Internal Code Signing" (`B526E5D2BBE118C72EEA6F619F6465B2F398435A`, RSA 3072, valid to 2031-10-07). It's in the Administrator account's store on FORD-DC01, with a **non-exportable** key (verified: export is refused).
+- **Desktop PR #31:**
+  - **`tauri-app/scripts/build-release.ps1`:**
+    - **Build:** signs SHA-256, timestamped (DigiCert TSA), with signing passed per build (nothing machine-specific committed).
+    - **Verify:** the setup `.exe`, the `.msi`, the app **inside** the MSI (unpacked with `msiexec /a`, because Tauri restores an unsigned `target\release\desksos.exe`) and the signed `Trust-DeskSOS.ps1`. A signature counts only if it's Valid, or if its only problem is an untrusted root, proven by building the chain with only the DeskSOS certificate as an anchor.
+    - **Assemble:** creates `release\DeskSOS-<version>\` with both public certificates and `SHA256SUMS.txt`.
+  - **`deployment-package/Trust-DeskSOS.ps1`** (PowerShell 5.1 and 7):
+    - adds the server CA to Root, and the signing certificate to Root and TrustedPublisher
+    - shows both fingerprints and requires `YES`
+    - `-Check` passes only for machine-wide trust; `-Remove` also clears per-user copies
+  - **Version 1.1.0.** The fingerprints are published in Desktop's runbook §6.3 (on GitHub, so tampered media can't change them).
+  - **CodeRabbit:** five findings fixed before merge, including authenticating the trust step and a strict signature check.
+- **Verification:**
+  - **Build:** the full build signed every output; all four files verified signed and timestamped.
+  - **Tampering:** flipping one byte of the installer gives `HashMismatch` and fails.
+  - **Trust script:** `-Check` correctly reported the server's per-user mkcert trust, and it refused to install without admin rights.
+  - **On the second office PC (192.168.12.137):** the signed release was installed and the app reached `https://FORD-DC01:5443`. Sign-in failed three times (wrong password for the Desktop `.com` account), then **succeeded at 10:43:43**, and the ticket queue has loaded every minute since.
+  - **Not yet confirmed by the owner:** the Digital Signatures tab and the install prompt's "Verified publisher" on that PC.
+- **GitHub incident:** pushes to both repos failed with `Internal Server Error` for about 5 minutes (15:12–15:17 UTC) while GitHub's status page showed "operational". A retry loop pushed once it recovered.
+- **Goal impact:** *users* get a signed, verifiable installer, and *administrators* can set up a PC in one step. Phase 5's next step is the pilot (5.4) with this release.
 
 ### Phase 2 exit gate passed; Phase 2 complete (2026-10-07)
 
