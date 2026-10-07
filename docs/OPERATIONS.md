@@ -33,7 +33,7 @@ Related documents:
 |---|---|---|---|
 | DeskSOS Enterprise Startup | Boot + 3 min | `start-production.ps1 -SkipBuild` | `backend\server\logs\startup.log` |
 | DeskSOS Enterprise Daily Backup | 02:30 | Verified backup to `backups\production` (14 kept) | `backend\server\logs\backup.log` |
-| DeskSOS Enterprise Health Monitor | Every 5 min | Checks `/health` and the certificate, alerts on change | `backend\server\logs\monitor.log` |
+| DeskSOS Enterprise Health Monitor | Every 5 min | Checks `/health` and the certificate, alerts on change, restarts Enterprise if it stays down (§3.1) | `backend\server\logs\monitor.log` |
 
 **Firewall:** the rule "DeskSOS Enterprise (HTTPS 5543, LAN only)" allows TCP 5543 from the local subnet only.
 
@@ -72,11 +72,14 @@ Also check that `backups\production` has a file from each recent night.
 
 ## 3. Start, stop, restart
 
+> **Why the startup task matters.** On Windows, the PM2 daemon belongs to the console window that first started it. If that window closes, **every production app stops with it**. That happened on 2026-10-06: both products were down for about 30 minutes. Starting through the scheduled task runs PM2 with no window attached, so it can't happen that way. Prefer it whenever PM2 isn't already running from a task, for example after `pm2 kill`.
+
 | Action | Command |
 |---|---|
-| Start, or restart after a change | `.\start-production.ps1 -SkipBuild` |
+| Start or restart (preferred: no window involved) | `Start-ScheduledTask "DeskSOS Enterprise Startup"` |
+| Start or restart, watching the output | `.\start-production.ps1 -SkipBuild` |
 | Rebuild and restart (after code changes) | `.\start-production.ps1` |
-| Stop | `pm2 stop desksos-enterprise` |
+| Stop on purpose | Enter maintenance mode first (§3.1), then `pm2 stop desksos-enterprise` |
 | Start a stopped instance | `pm2 start desksos-enterprise` |
 | Live logs | `pm2 logs desksos-enterprise` |
 
@@ -92,6 +95,29 @@ Also check that `backups\production` has a file from each recent night.
 A restart signs nobody out, because tokens survive restarts. Open dashboards reconnect by themselves.
 
 **Note:** the health monitor will log DOWN and then Recovered around a restart. That's expected.
+
+### 3.1 Self-healing and maintenance mode
+
+The Health Monitor restarts Enterprise by itself if it stays down:
+
+| When | What happens |
+|---|---|
+| 1st failed check | A DOWN alert is sent. Nothing is restarted yet, because brief restarts are normal |
+| 2nd failed check in a row (5–10 minutes) | It runs `DeskSOS Enterprise Startup` and alerts "Restarting automatically". It never starts the task while it's already running |
+| Back up | A Recovered alert is sent |
+| 3 restarts within an hour, still down | "Self-healing gave up" (sent once). Someone has to look: `pm2 logs desksos-enterprise`, `backend\server\logs\startup.log` |
+
+**Stopping it on purpose (upgrades, a restore, investigating):** create the maintenance file **first**, or the monitor restarts Enterprise within about 10 minutes:
+
+```powershell
+New-Item C:\Projects\DESKSOS\backend\server\logs\MAINTENANCE -Force   # pause self-healing
+pm2 stop desksos-enterprise
+# ... work ...
+Start-ScheduledTask "DeskSOS Enterprise Startup"
+Remove-Item C:\Projects\DESKSOS\backend\server\logs\MAINTENANCE        # resume self-healing
+```
+
+In maintenance mode, DOWN alerts still go out and say "Maintenance mode". **Remember to remove the file**, or a real outage won't be fixed automatically.
 
 ---
 
@@ -143,6 +169,7 @@ This replaces the live database. Everything since that backup is lost.
 
 ```powershell
 cd C:\Projects\DESKSOS
+New-Item backend\server\logs\MAINTENANCE -Force    # pause self-healing during the restore
 pm2 stop desksos-enterprise
 
 # 1. Keep the current database, in case you need it back
@@ -154,9 +181,10 @@ Copy-Item backend\server\data\enterprise-prod.db* $keep
 Remove-Item backend\server\data\enterprise-prod.db-wal, backend\server\data\enterprise-prod.db-shm -ErrorAction SilentlyContinue
 Copy-Item backups\production\<chosen-backup>.db backend\server\data\enterprise-prod.db -Force
 
-# 3. Start and check
-.\start-production.ps1 -SkipBuild
-Invoke-RestMethod https://FORD-DC01:5543/health
+# 3. Start, check, resume self-healing
+Start-ScheduledTask "DeskSOS Enterprise Startup"
+Start-Sleep 30; Invoke-RestMethod https://FORD-DC01:5543/health
+Remove-Item backend\server\logs\MAINTENANCE
 ```
 
 Then sign in and check that the incidents look right.
@@ -372,6 +400,8 @@ The database, backups, certificates and secrets stay on disk until you delete th
 | `connect EPERM \\.\pipe\rpc.sock` | PM2 runs elevated and the window isn't | Use an Administrator window |
 | Build fails: `'vite' is not recognized` | Packages are out of date (fixed in the script since 2026-10-06) | `cd client; npm ci; cd ..`, then `.\start-production.ps1` |
 | Dashboard unreachable overnight or after idle | The PC went to sleep | §9: disable sleep on AC power |
+| Enterprise comes back by itself after you stopped it | Self-healing restarted it (§3.1) | Create `backend\server\logs\MAINTENANCE` before stopping it on purpose |
+| "Self-healing gave up" alert | Restarting 3 times in an hour didn't help | `pm2 logs desksos-enterprise`, `backend\server\logs\startup.log`; fix, then `Start-ScheduledTask "DeskSOS Enterprise Startup"` |
 | Nothing is running after a reboot | The startup task failed | `Get-Content backend\server\logs\startup.log -Tail 30`; `Get-ScheduledTaskInfo "DeskSOS Enterprise Startup"` |
 | Certificate warning on another PC | The authority isn't trusted there | §8.2 |
 | Page doesn't load from another PC | Firewall, the Wi-Fi profile is Public, or the PC isn't on the LAN | §9; check `Test-NetConnection FORD-DC01 -Port 5543` from that PC |
