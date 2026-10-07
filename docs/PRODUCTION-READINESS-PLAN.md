@@ -234,8 +234,8 @@ Updated 2026-10-06 (after the reboot test). Phases 0 and 1 are complete. Phase 2
 2. Admin: **trust the CA on another LAN PC** and open the dashboard there. This is task 2.3 and the rest of Phase 2's exit gate.
 3. ~~Dev: health monitors restart a service that's down.~~ **Done 2026-10-07:** self-healing is live in both monitors and was verified with a real stop (see "Self-healing monitors").
 4. Admin: **off-machine backup share** (3.2, decision D5) and Desktop's restore drill (3.3).
-5. Owner: **code signing** (5.1, decision D4). This has the longest lead time.
-6. Owner: **branch protection** on `main` in both repos (4.6).
+5. Owner: **code signing** (5.1, decision D4). This has the longest lead time.
+6. ~~Owner: branch protection.~~ **Done 2026-10-07** (4.6): `main` in both repos requires a pull request and passing CI, including for admins. 0 approvals required for now, because a sole developer can't approve their own PR; raise it to 1 when a second reviewer joins.
 7. ~~Admin: limit Desktop's firewall rule; turn off Fast Startup.~~ **Done 2026-10-07:** "DeskSOS Backend" is now `LocalSubnet` on every profile, matching Enterprise's rule, and Fast Startup is off (`HiberbootEnabled = 0`, hibernation unavailable). Desktop still answers via `192.168.12.196` and `FORD-DC01`.
 8. Owner: set your own Desktop admin password if it's still the reset one, and choose 3–5 pilot PCs (5.4).
 9. Owner: Sentry DSN (3.5, optional), the support contact (6.4), and closing the stale Enterprise Dependabot PRs (#1, #3–#9).
@@ -299,6 +299,7 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 | 2026-10-06 | **Phase 2 reboot test** (plus Phase 0's boot task) | ✅ Passed: real reboot 15:17:44; both services came back on their own (tasks result 0). LAN-PC check still to do |
 | 2026-10-07 | 3.4 Alerts for both products (Discord) | ✅ Verified: a real stop of Enterprise production → DOWN in Discord from the scheduled monitor; restart → Recovered |
 | 2026-10-07 | Desktop firewall rule limited to the LAN (D3); Fast Startup off | ✅ Verified (rule `LocalSubnet`/`Any`; `HiberbootEnabled 0`; both services reachable) |
+| 2026-10-07 | 4.6 Branch protection on `main`, both repos | ✅ Verified: a direct push to `main` was rejected (`GH006: Changes must be made through a pull request`; 2 of 2 required checks) |
 | 2026-10-07 | Self-healing monitors and maintenance mode (both products) | ✅ Verified live: Enterprise stopped → restarted by the monitor on the 2nd check, healthy 5 s later, no manual action |
 
 ### 0.3 Enterprise backups capture real data
