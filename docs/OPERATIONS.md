@@ -331,11 +331,24 @@ Import-Certificate -FilePath .\desksos-ca.crt -CertStoreLocation Cert:\LocalMach
 
 1. Choose **Local Machine** and approve the admin prompt.
 2. Choose **"Place all certificates in the following store"** → **Browse** → **Trusted Root Certification Authorities**. Don't use "Automatically select": it doesn't put the certificate in Trusted Root.
-3. Click **Finish**. If a security warning shows the thumbprint `E2EC9250F1D17D362FFAEA3C20C28C530418C4BB`, click **Yes**.
+3. Click **Finish**. If a security warning shows a thumbprint, check that it matches the file's thumbprint (below), then click **Yes**.
 
 Then **close every browser window**, including any browser icon in the system tray, and reopen it. Browsers cache certificate decisions.
 
-To check that a PC trusts it: `Get-ChildItem Cert:\LocalMachine\Root | Where-Object Thumbprint -eq 'E2EC9250F1D17D362FFAEA3C20C28C530418C4BB'`
+The file's thumbprint, on the server or on the PC holding the copy:
+
+```powershell
+(Get-PfxCertificate .\desksos-ca.crt).Thumbprint
+```
+
+On 2026-10-07 it was `E2EC9250F1D17D362FFAEA3C20C28C530418C4BB`. It changes if the mkcert CA is ever recreated.
+
+To check that a PC trusts it, in the folder with the copy:
+
+```powershell
+$t = (Get-PfxCertificate .\desksos-ca.crt).Thumbprint
+Get-ChildItem Cert:\LocalMachine\Root | Where-Object Thumbprint -eq $t   # prints the certificate if trusted
+```
 
 Check by opening `https://FORD-DC01:5543` in Edge or Chrome on that PC: there should be no warning.
 
