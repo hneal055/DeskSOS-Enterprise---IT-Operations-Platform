@@ -233,7 +233,8 @@ Updated 2026-10-07. **Phases 0, 1 and 2 are complete.** Phase 2's exit gate pass
 1. ~~Owner/Admin: a working alert channel.~~ **Done 2026-10-07:** both monitors alert to Discord, verified with a real outage (see "Alerts to Discord").
 2. ~~Admin: trust the CA on another LAN PC and open the dashboard there.~~ **Done 2026-10-07:** the PC at 192.168.12.137 (Wi-Fi) trusts the CA, loads `https://FORD-DC01:5543` without a warning, and signed in as admin. Repeat the CA import (runbook §8.2) on every other PC that will use the dashboard.
 3. ~~Dev: health monitors restart a service that's down.~~ **Done 2026-10-07:** self-healing is live in both monitors and was verified with a real stop (see "Self-healing monitors").
-4. Admin: **off-machine backup share** (3.2, decision D5) and Desktop's restore drill (3.3).
+4. Admin: **off-machine backup share** (3.2, decision D5). Desktop's restore drill (3.3) is done: it passed on 2026-10-07.
+4a. **Pilot (5.4) is ready to start** with DeskSOS **1.1.1** (`release\DeskSOS-1.1.1\`), which includes the pilot fixes. Owner: choose 3–5 PCs. Include a real two-PC Remote Session test.
 5. ~~Dev/Admin: code signing for the local office.~~ **Done 2026-10-07** (5.1, Desktop PR #31): signed release **DeskSOS 1.1.0** is installed and working on the second office PC. Azure is deferred until production-ready. **Next for Phase 5:** pilot on 3–5 PCs (5.4) with the 1.1.0 release folder.
 6. ~~Owner: branch protection.~~ **Done 2026-10-07** (4.6): `main` in both repos requires a pull request and passing CI, including for admins. 0 approvals required for now, because a sole developer can't approve their own PR; raise it to 1 when a second reviewer joins.
 7. ~~Admin: limit Desktop's firewall rule; turn off Fast Startup.~~ **Done 2026-10-07:** "DeskSOS Backend" is now `LocalSubnet` on every profile, matching Enterprise's rule, and Fast Startup is off (`HiberbootEnabled = 0`, hibernation unavailable). Desktop still answers via `192.168.12.196` and `FORD-DC01`.
@@ -302,6 +303,9 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 | 2026-10-07 | 4.6 Branch protection on `main`, both repos | ✅ Verified: a direct push to `main` was rejected (`GH006: Changes must be made through a pull request`; 2 of 2 required checks) |
 | 2026-10-07 | 2.3 Dashboard over HTTPS from a LAN PC: **Phase 2 exit gate** | ✅ Passed: 192.168.12.137 (Wi-Fi) after importing the CA. No warning; `auth.login` as admin at 09:42:26; incidents loaded. **Phase 2 complete** |
 | 2026-10-07 | 5.1 Signed Desktop release 1.1.0 (self-made certificate, revised D4) | ✅ Verified: all outputs signed and timestamped; a tampered byte is caught; installed on 192.168.12.137, signed in at 10:43:43 and in use |
+| 2026-10-07 | 3.3 Restore drill, Desktop (`backend\scripts\restore-drill.ps1`) | ✅ PASS on the production backup (25 tickets, 2 users, 4 messages, 3 outbox rows); bridge off during the drill (Enterprise saw no ingest). **3.3 done for both products** |
+| 2026-10-07 | Pilot fixes, Enterprise dashboard + 4.1 started (first dashboard tests) | ✅ 3 bugs fixed; 8 tests in CI (5 fail on the old code); live in production |
+| 2026-10-07 | Pilot fixes, Desktop app; release **1.1.1** | ✅ 9 fixes including Remote Session signaling; 11 new tests (28 total); 1.1.1 built and signed. A real two-PC Remote Session is still to test |
 | 2026-10-07 | Self-healing monitors and maintenance mode (both products) | ✅ Verified live: Enterprise stopped → restarted by the monitor on the 2nd check, healthy 5 s later, no manual action |
 
 ### 0.3 Enterprise backups capture real data
@@ -842,6 +846,39 @@ Each finding was checked against the code before acting. All 8 were valid. Fixed
 - **Goal impact:**
   - *Administrators* can run, upgrade, restore and secure Enterprise from one document, and prove backups restore in one command.
   - Moves forward the go-live items "Runbooks for both products cover…" and "Restore drill passed within the last 30 days" (Enterprise half).
+
+### Pilot fixes, Desktop restore drill, release 1.1.1 (2026-10-07)
+
+These clear the "Findings for later" from the Track A entry, before pilot users see them.
+
+- **Desktop restore drill (3.3; Desktop PR #32):**
+  - **`backend\scripts\restore-drill.ps1`** restores the newest (or a given) backup to a scratch folder and checks that every table is readable.
+  - **Throwaway backend:** it serves the copy on port 5197 with a temporary secret and the **Enterprise bridge off**, so queued tickets in an old backup are never re-sent.
+  - **Checks:** `/health`, an anonymous 401, and that a signed-in request returns every ticket.
+  - **Result:** **PASS** on last night's production backup.
+    - Enterprise logged no ingest during the drill.
+    - Missing-table, corrupt and missing-file cases fail.
+    - First run: the drill called `localhost`, which tried IPv6, but the Desktop backend listens on IPv4 `0.0.0.0` only. It now uses `127.0.0.1`.
+  - **Runbook:** §4.4's restore steps now pause self-healing and start via the task, and §4.5 documents the drill.
+- **Enterprise dashboard (Enterprise PR #35):**
+  - **Fixes:**
+    - Critical Alerts and High Severity count open incidents only (`src/metrics.js`).
+    - The new-incident form has blank optional fields with placeholders, instead of `Node-Ops-Lead` and Los Angeles coordinates.
+    - A rejected or unreachable submit shows the server's reason and keeps the text.
+  - **Tests (task 4.1, started):** Vitest + Testing Library added, with 8 tests in CI. 5 of them fail against the previous `App.jsx`.
+  - **Deployed:** `client/build` is served live; production serves the build from `main` (`index-CiyIGWFI.js`).
+- **Desktop app (Desktop PR #33; version 1.1.1):**
+  - **Remote Session signaling:** the viewer's answer went to `undefined` because of a stale closure, so sessions never connected. Stop Sharing never notified the viewer. Early ICE candidates were dropped. Fixed with a peer-id ref and an ICE queue.
+  - **Ticket Builder:** no duplicate submits, a "Start a new ticket" button, and honest ping labels.
+  - **App shell:** opened pages stay mounted, so switching pages no longer loses a ticket.
+  - **Fix It and Kill:** a confirm click on disruptive actions, plain-text results, and an administrator-rights warning on Fix It and Processes.
+  - **Sign-in:** an expired token signs out with "Your session has expired", a clearer server-unreachable message, and a neutral email placeholder.
+  - **Smaller:** "Session ID" is relabelled "Account ID".
+  - **Tests:** 11 new (28 total). The duplicate-ticket and both Remote Session tests fail against the previous code.
+- **Release 1.1.1:**
+  - `build-release.ps1` signed and timestamped the setup `.exe`, the `.msi`, the app inside the MSI and `Trust-DeskSOS.ps1`. The fingerprints are unchanged, so PCs that trust 1.1.0 need no new trust step: run the 1.1.1 setup over 1.1.0.
+  - **Still manual:** a real two-PC Remote Session, during the pilot.
+- **Docs:** the user guide (counters, form, errors) and the technician guide (kept pages, confirmations, admin warning, new ticket, session expiry) are updated.
 
 ### 5.1 Signed Desktop release 1.1.0 (2026-10-07)
 
