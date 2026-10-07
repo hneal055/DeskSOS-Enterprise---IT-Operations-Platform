@@ -16,7 +16,9 @@
 
     Alert channels (set as user-level environment variables for the account
     the task runs as; without any, alerts are only written to the log):
+      Discord:              ALERT_DISCORD_WEBHOOK_URL channel webhook URL
       Teams (decision D6):  ALERT_TEAMS_WEBHOOK_URL   incoming-webhook / Workflows URL
+                            (Teams for work or school; Teams free has no webhooks)
       Email:                ALERT_SMTP_HOST, ALERT_SMTP_PORT (587), ALERT_SMTP_USER,
                             ALERT_SMTP_PASS, ALERT_TO
 
@@ -40,6 +42,16 @@ function Write-Log([string]$Message) {
     $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $Message"
     Add-Content -Path $logFile -Value $line
     Write-Host $line
+}
+
+function Send-Discord([string]$Subject, [string]$Body) {
+    # Plain message; mentions are disabled so alert text can never ping @everyone.
+    # Discord caps a message at 2000 characters.
+    $text = "**[DeskSOS Enterprise] $Subject**`n$Body"
+    if ($text.Length -gt 1900) { $text = $text.Substring(0, 1900) + " ..." }
+    $msg = @{ username = "DeskSOS"; content = $text; allowed_mentions = @{ parse = @() } }
+    Invoke-RestMethod -Uri $env:ALERT_DISCORD_WEBHOOK_URL -Method Post -ContentType "application/json" `
+        -Body ($msg | ConvertTo-Json -Depth 5) -TimeoutSec 15 -ErrorAction Stop | Out-Null
 }
 
 function Send-Teams([string]$Subject, [string]$Body) {
@@ -78,6 +90,11 @@ function Send-Email([string]$Subject, [string]$Body) {
 function Send-Alert([string]$Subject, [string]$Body) {
     Write-Log "ALERT: $Subject"
     $channels = 0; $delivered = 0
+    if ($env:ALERT_DISCORD_WEBHOOK_URL) {
+        $channels++
+        try { Send-Discord $Subject $Body; $delivered++; Write-Log "  Sent to Discord" }
+        catch { Write-Log "  Discord failed: $($_.Exception.Message)" }
+    }
     if ($env:ALERT_TEAMS_WEBHOOK_URL) {
         $channels++
         try { Send-Teams $Subject $Body; $delivered++; Write-Log "  Sent to Teams" }
@@ -88,7 +105,7 @@ function Send-Alert([string]$Subject, [string]$Body) {
         try { Send-Email $Subject $Body; $delivered++; Write-Log "  Sent by email" }
         catch { Write-Log "  Email failed: $($_.Exception.Message)" }
     }
-    if ($channels -eq 0) { Write-Log "  (no alert channel configured; set ALERT_TEAMS_WEBHOOK_URL or ALERT_SMTP_*)"; return $true }
+    if ($channels -eq 0) { Write-Log "  (no alert channel configured; set ALERT_DISCORD_WEBHOOK_URL, ALERT_TEAMS_WEBHOOK_URL or ALERT_SMTP_*)"; return $true }
     if ($delivered -eq 0) { Write-Log "  No channel delivered the alert (will retry next run)"; return $false }
     return $true
 }

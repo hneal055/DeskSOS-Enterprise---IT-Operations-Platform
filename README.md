@@ -157,7 +157,8 @@ The tasks run as the current user whether or not anyone is signed in, using the 
 **Alerts** go to a Teams channel and/or email. Set these as user-level environment variables, then run the register script again:
 
 ```powershell
-[Environment]::SetEnvironmentVariable('ALERT_TEAMS_WEBHOOK_URL', '<incoming webhook or Workflows URL>', 'User')
+[Environment]::SetEnvironmentVariable('ALERT_DISCORD_WEBHOOK_URL', '<Discord channel webhook URL>', 'User')
+# or Teams for work/school: ALERT_TEAMS_WEBHOOK_URL
 # optional email: ALERT_SMTP_HOST, ALERT_SMTP_PORT, ALERT_SMTP_USER, ALERT_SMTP_PASS, ALERT_TO
 ```
 
