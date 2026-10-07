@@ -232,7 +232,7 @@ Updated 2026-10-06 (after the reboot test). Phases 0 and 1 are complete. Phase 2
 
 1. ~~Owner/Admin: a working alert channel.~~ **Done 2026-10-07:** both monitors alert to Discord, verified with a real outage (see "Alerts to Discord").
 2. Admin: **trust the CA on another LAN PC** and open the dashboard there. This is task 2.3 and the rest of Phase 2's exit gate.
-3. Dev: **health monitors restart a service that's down** (self-healing), and both runbooks say to start production only through the scheduled tasks.
+3. ~~Dev: health monitors restart a service that's down.~~ **Done 2026-10-07:** self-healing is live in both monitors and was verified with a real stop (see "Self-healing monitors").
 4. Admin: **off-machine backup share** (3.2, decision D5) and Desktop's restore drill (3.3).
 5. Owner: **code signing** (5.1, decision D4). This has the longest lead time.
 6. Owner: **branch protection** on `main` in both repos (4.6).
@@ -298,6 +298,7 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 | 2026-10-06 | Outage: both production services stopped at ~14:48 when the window running PM2 closed | ✅ Restored 15:16 via the scheduled tasks; nobody was alerted (email failing) |
 | 2026-10-06 | **Phase 2 reboot test** (plus Phase 0's boot task) | ✅ Passed: real reboot 15:17:44; both services came back on their own (tasks result 0). LAN-PC check still to do |
 | 2026-10-07 | 3.4 Alerts for both products (Discord) | ✅ Verified: a real stop of Enterprise production → DOWN in Discord from the scheduled monitor; restart → Recovered |
+| 2026-10-07 | Self-healing monitors and maintenance mode (both products) | ✅ Verified live: Enterprise stopped → restarted by the monitor on the 2nd check, healthy 5 s later, no manual action |
 
 ### 0.3 Enterprise backups capture real data
 
@@ -837,6 +838,30 @@ Each finding was checked against the code before acting. All 8 were valid. Fixed
 - **Goal impact:**
   - *Administrators* can run, upgrade, restore and secure Enterprise from one document, and prove backups restore in one command.
   - Moves forward the go-live items "Runbooks for both products cover…" and "Restore drill passed within the last 30 days" (Enterprise half).
+
+### Self-healing monitors (2026-10-07)
+
+- **Why:** on 2026-10-06 both products were down for about 30 minutes and stayed down until someone noticed. Alerts now reach Discord, but recovery still needed a person.
+- **Change (Enterprise PR #30, Desktop PR #30):**
+  - **When it restarts:** after **2 failed checks in a row**, each health monitor runs its product's startup task (`DeskSOS Enterprise Startup` / `DeskSOS Backend Startup`). The task runs `start-production.ps1 -SkipBuild` with no console window, so PM2 isn't tied to one.
+  - **When it doesn't:** never while the task is already running. At most **3 restarts an hour**, then one "Self-healing gave up" alert.
+  - **Only on the server itself:** it acts only when the monitored host is this machine, because a monitor on another PC would start *its own* task.
+  - **Missing task:** a deleted startup task sends one "Automatic restart unavailable" alert.
+  - **Maintenance mode:** a `MAINTENANCE` file in the logs folder pauses self-healing for planned work. DOWN alerts still go out and say "Maintenance mode".
+  - **Runbooks:** both say to start via the scheduled task. They have maintenance steps, including Enterprise's restore procedure, and troubleshooting rows.
+  - **Review:** CodeRabbit raised three findings (remote monitor, missing task, the Desktop runbook ending maintenance with `pm2 start`), all fixed before merge.
+- **Verification:**
+  - **Both monitors, with stand-ins for the task commands:**
+    - waits on the 1st failure and restarts on the 2nd
+    - skips while the task is running
+    - 3 attempts, then one "gave up", with no repeat
+    - recovery resets the counters
+    - maintenance, a missing task (one alert), a remote host (`192.0.2.10`: off), and `FORD-DC01` counted as local
+  - **Live:** Enterprise production was stopped with `pm2 stop`.
+    - **08:27:59** DOWN (Discord); "restarts after 2"
+    - **08:28:14** still down → `ALERT: Restarting automatically` (Discord). The startup task ran at 08:28:19 with result 0.
+    - **08:28:30** Recovered (Discord). The state shows `downCount 0`, one restart this hour.
+- **Goal impact:** a crash or a dead PM2 daemon now fixes itself within about 10 minutes, and administrators are told on their phones. The 2026-10-06 outage would have lasted about 10 minutes instead of 30, with alerts all along.
 
 ### Alerts to Discord (2026-10-07)
 
