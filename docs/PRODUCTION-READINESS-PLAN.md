@@ -54,7 +54,7 @@ Principles:
 | D1 | **Local accounts in Enterprise** (hashed passwords, managed by an Admin). Microsoft Entra ID sign-in may follow after go-live |
 | D2 | **Three roles: Admin, Operator, Viewer** |
 | D3 | **Office LAN only** (firewall rule scoped to the local network) |
-| D4 | **Azure Trusted Signing**, or a public OV certificate if Azure isn't available |
+| D4 | **Azure Trusted Signing**, or a public OV certificate if Azure isn't available. *Revised 2026-10-07: while DeskSOS is used only in the owner's local office, sign with a **self-made code-signing certificate** trusted on each office PC ($0), alongside the DeskSOS CA import those PCs already need. Revisit Azure Artifact Signing (≈$9.99/month; US/Canada organizations with 3+ years' history) once the platform is production-ready, or before any rollout outside the office.* |
 | D5 | **Network share on another PC or NAS** for off-machine backups |
 | D6 | **Teams webhook** for alerts. *Changed 2026-10-07 to a **Discord** webhook: the organization uses Teams (free), which has no webhooks or Workflows.* |
 
@@ -233,8 +233,8 @@ Updated 2026-10-07. **Phases 0, 1 and 2 are complete.** Phase 2's exit gate pass
 1. ~~Owner/Admin: a working alert channel.~~ **Done 2026-10-07:** both monitors alert to Discord, verified with a real outage (see "Alerts to Discord").
 2. ~~Admin: trust the CA on another LAN PC and open the dashboard there.~~ **Done 2026-10-07:** the PC at 192.168.12.137 (Wi-Fi) trusts the CA, loads `https://FORD-DC01:5543` without a warning, and signed in as admin. Repeat the CA import (runbook §8.2) on every other PC that will use the dashboard.
 3. ~~Dev: health monitors restart a service that's down.~~ **Done 2026-10-07:** self-healing is live in both monitors and was verified with a real stop (see "Self-healing monitors").
-4. Admin: **off-machine backup share** (3.2, decision D5) and Desktop's restore drill (3.3).
-5. Owner: **code signing** (5.1, decision D4). This has the longest lead time.
+4. Admin: **off-machine backup share** (3.2, decision D5) and Desktop's restore drill (3.3).
+5. Dev/Admin: **code signing for the local office** (5.1, revised D4): a self-made code-signing certificate, signing added to the Desktop build, and the certificate trusted on each office PC with the DeskSOS CA. Azure is deferred until production-ready.
 6. ~~Owner: branch protection.~~ **Done 2026-10-07** (4.6): `main` in both repos requires a pull request and passing CI, including for admins. 0 approvals required for now, because a sole developer can't approve their own PR; raise it to 1 when a second reviewer joins.
 7. ~~Admin: limit Desktop's firewall rule; turn off Fast Startup.~~ **Done 2026-10-07:** "DeskSOS Backend" is now `LocalSubnet` on every profile, matching Enterprise's rule, and Fast Startup is off (`HiberbootEnabled = 0`, hibernation unavailable). Desktop still answers via `192.168.12.196` and `FORD-DC01`.
 8. Owner: set your own Desktop admin password if it's still the reset one, and choose 3–5 pilot PCs (5.4).
