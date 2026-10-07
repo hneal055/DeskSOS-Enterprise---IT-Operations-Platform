@@ -342,6 +342,8 @@ These were set once. Check them after Windows feature updates or if something ch
 |---|---|---|
 | **No sleep on AC power** (the PC slept overnight on 2026-10-05) | `powercfg /query SCHEME_CURRENT SUB_SLEEP STANDBYIDLE` → AC index `0x0` | `powercfg /change standby-timeout-ac 0`; `powercfg /change hibernate-timeout-ac 0` |
 | **Node.js firewall rules limited to the LAN.** Windows' "Allow" prompt creates rules that open every Node port to any address | `Get-NetFirewallRule -DisplayName 'Node.js JavaScript Runtime' \| Get-NetFirewallAddressFilter` → `LocalSubnet` | `Get-NetFirewallRule -DisplayName 'Node.js JavaScript Runtime' \| Set-NetFirewallRule -EdgeTraversalPolicy Block -RemoteAddress LocalSubnet` |
+| **Fast Startup off** (otherwise a shutdown and power-on resumes Windows and the startup tasks may not run) | `(Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power').HiberbootEnabled` → `0` | `powercfg /h off` |
+| **Desktop's firewall rule** ("DeskSOS Backend", TCP 5443) limited to the LAN | `Get-NetFirewallRule -DisplayName 'DeskSOS Backend' \| Get-NetFirewallAddressFilter` → `LocalSubnet` | `Set-NetFirewallRule -DisplayName 'DeskSOS Backend' -RemoteAddress LocalSubnet -Profile Any` |
 | **Production firewall rule** | `Get-NetFirewallRule -DisplayName 'DeskSOS Enterprise*'` | `.\register-production-tasks.ps1` |
 | **Wi-Fi network profile is Private** | `Get-NetConnectionProfile` | Settings → Network → Wi-Fi → Private |
 

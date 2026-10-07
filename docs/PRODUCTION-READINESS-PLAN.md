@@ -236,7 +236,7 @@ Updated 2026-10-06 (after the reboot test). Phases 0 and 1 are complete. Phase 2
 4. Admin: **off-machine backup share** (3.2, decision D5) and Desktop's restore drill (3.3).
 5. Owner: **code signing** (5.1, decision D4). This has the longest lead time.
 6. Owner: **branch protection** on `main` in both repos (4.6).
-7. Admin: **limit Desktop's firewall rule** ("DeskSOS Backend", TCP 5443) to `LocalSubnet` (decision D3), and turn off Fast Startup (`powercfg /h off`).
+7. ~~Admin: limit Desktop's firewall rule; turn off Fast Startup.~~ **Done 2026-10-07:** "DeskSOS Backend" is now `LocalSubnet` on every profile, matching Enterprise's rule, and Fast Startup is off (`HiberbootEnabled = 0`, hibernation unavailable). Desktop still answers via `192.168.12.196` and `FORD-DC01`.
 8. Owner: set your own Desktop admin password if it's still the reset one, and choose 3–5 pilot PCs (5.4).
 9. Owner: Sentry DSN (3.5, optional), the support contact (6.4), and closing the stale Enterprise Dependabot PRs (#1, #3–#9).
 10. Later: invite and password-reset emails, once a sender works; the app issues found while writing the guides (see the Track A entry).
@@ -298,6 +298,7 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 | 2026-10-06 | Outage: both production services stopped at ~14:48 when the window running PM2 closed | ✅ Restored 15:16 via the scheduled tasks; nobody was alerted (email failing) |
 | 2026-10-06 | **Phase 2 reboot test** (plus Phase 0's boot task) | ✅ Passed: real reboot 15:17:44; both services came back on their own (tasks result 0). LAN-PC check still to do |
 | 2026-10-07 | 3.4 Alerts for both products (Discord) | ✅ Verified: a real stop of Enterprise production → DOWN in Discord from the scheduled monitor; restart → Recovered |
+| 2026-10-07 | Desktop firewall rule limited to the LAN (D3); Fast Startup off | ✅ Verified (rule `LocalSubnet`/`Any`; `HiberbootEnabled 0`; both services reachable) |
 | 2026-10-07 | Self-healing monitors and maintenance mode (both products) | ✅ Verified live: Enterprise stopped → restarted by the monitor on the 2nd check, healthy 5 s later, no manual action |
 
 ### 0.3 Enterprise backups capture real data
