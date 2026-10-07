@@ -327,7 +327,8 @@ The Health Monitor writes DOWN and Recovered to `monitor.log`. To also send them
 
 | Channel | Variables |
 |---|---|
-| Teams (decision D6) | `ALERT_TEAMS_WEBHOOK_URL` |
+| **Discord** (in use since 2026-10-07) | `ALERT_DISCORD_WEBHOOK_URL`: a channel webhook (Edit Channel → Integrations → Webhooks) |
+| Teams (decision D6) | `ALERT_TEAMS_WEBHOOK_URL`. Needs Teams for work or school, because Teams (free) has no webhooks |
 | Email | `ALERT_SMTP_HOST`, `ALERT_SMTP_PORT`, `ALERT_SMTP_USER`, `ALERT_SMTP_PASS`, `ALERT_TO` |
 
 **Error tracking (Sentry, optional).** Put the project's DSN in `.env.production` as `SENTRY_DSN=...`, restart with `.\start-production.ps1 -SkipBuild`, then check it from `backend\server`:
