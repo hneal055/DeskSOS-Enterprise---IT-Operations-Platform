@@ -234,7 +234,7 @@ Updated 2026-10-07. **Phases 0, 1 and 2 are complete.** Phase 2's exit gate pass
 2. ~~Admin: trust the CA on another LAN PC and open the dashboard there.~~ **Done 2026-10-07:** the PC at 192.168.12.137 (Wi-Fi) trusts the CA, loads `https://FORD-DC01:5543` without a warning, and signed in as admin. Repeat the CA import (runbook §8.2) on every other PC that will use the dashboard.
 3. ~~Dev: health monitors restart a service that's down.~~ **Done 2026-10-07:** self-healing is live in both monitors and was verified with a real stop (see "Self-healing monitors").
 4. Admin: **off-machine backup share** (3.2, decision D5). Desktop's restore drill (3.3) is done: it passed on 2026-10-07.
-4a. **Pilot (5.4) is ready to start** with DeskSOS **1.1.1** (`release\DeskSOS-1.1.1\`), which includes the pilot fixes. Owner: choose 3–5 PCs. Include a real two-PC Remote Session test.
+4a. **Pilot (5.4) is ready to start** with DeskSOS **1.1.1**: Remote Session is verified on two PCs. Owner: choose 3–5 PCs. **Gap:** Desktop has no way to create user accounts except a raw API call. Add an account script before the pilot.
 5. ~~Dev/Admin: code signing for the local office.~~ **Done 2026-10-07** (5.1, Desktop PR #31): signed release **DeskSOS 1.1.0** is installed and working on the second office PC. Azure is deferred until production-ready. **Next for Phase 5:** pilot on 3–5 PCs (5.4) with the 1.1.0 release folder.
 6. ~~Owner: branch protection.~~ **Done 2026-10-07** (4.6): `main` in both repos requires a pull request and passing CI, including for admins. 0 approvals required for now, because a sole developer can't approve their own PR; raise it to 1 when a second reviewer joins.
 7. ~~Admin: limit Desktop's firewall rule; turn off Fast Startup.~~ **Done 2026-10-07:** "DeskSOS Backend" is now `LocalSubnet` on every profile, matching Enterprise's rule, and Fast Startup is off (`HiberbootEnabled = 0`, hibernation unavailable). Desktop still answers via `192.168.12.196` and `FORD-DC01`.
@@ -306,6 +306,7 @@ A task counts as done only once its verification has passed. "Implemented" isn't
 | 2026-10-07 | 3.3 Restore drill, Desktop (`backend\scripts\restore-drill.ps1`) | ✅ PASS on the production backup (25 tickets, 2 users, 4 messages, 3 outbox rows); bridge off during the drill (Enterprise saw no ingest). **3.3 done for both products** |
 | 2026-10-07 | Pilot fixes, Enterprise dashboard + 4.1 started (first dashboard tests) | ✅ 3 bugs fixed; 8 tests in CI (5 fail on the old code); live in production |
 | 2026-10-07 | Pilot fixes, Desktop app; release **1.1.1** | ✅ 9 fixes including Remote Session signaling; 11 new tests (28 total); 1.1.1 built and signed. A real two-PC Remote Session is still to test |
+| 2026-10-07 | Remote Session, real two-PC test (1.1.1) | ✅ Owner confirmed working. Server log: `tech@desksos.com` (192.168.12.137) and `admin@desksos.com` (FORD-DC01) both on the signaling socket at 13:26. Video is peer-to-peer, so it isn't visible to the server |
 | 2026-10-07 | Self-healing monitors and maintenance mode (both products) | ✅ Verified live: Enterprise stopped → restarted by the monitor on the 2nd check, healthy 5 s later, no manual action |
 
 ### 0.3 Enterprise backups capture real data
@@ -877,7 +878,7 @@ These clear the "Findings for later" from the Track A entry, before pilot users 
   - **Tests:** 11 new (28 total). The duplicate-ticket and both Remote Session tests fail against the previous code.
 - **Release 1.1.1:**
   - `build-release.ps1` signed and timestamped the setup `.exe`, the `.msi`, the app inside the MSI and `Trust-DeskSOS.ps1`. The fingerprints are unchanged, so PCs that trust 1.1.0 need no new trust step: run the 1.1.1 setup over 1.1.0.
-  - **Still manual:** a real two-PC Remote Session, during the pilot.
+  - **Two-PC Remote Session:** confirmed working by the owner later the same day (admin on FORD-DC01, tech on 192.168.12.137). The tech account had a random first-start password; it was reset with `reset-password.js --prod`.
 - **Docs:** the user guide (counters, form, errors) and the technician guide (kept pages, confirmations, admin warning, new ticket, session expiry) are updated.
 
 ### 5.1 Signed Desktop release 1.1.0 (2026-10-07)
