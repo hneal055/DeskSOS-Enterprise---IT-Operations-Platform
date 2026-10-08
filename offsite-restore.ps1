@@ -40,12 +40,12 @@ try {
     Write-Host "Couldn't decrypt: wrong passphrase, or the file is damaged or not a DeskSOS copy." -ForegroundColor Red
     exit 1
 }
+# A real SQLite database starts with this header; check before writing anything
+$header = [Text.Encoding]::ASCII.GetString($plain, 0, [Math]::Min(15, $plain.Length))
+if ($header -ne 'SQLite format 3') { Write-Host "Decrypted, but the result isn't a SQLite database; nothing written." -ForegroundColor Red; exit 1 }
+
 New-Item -ItemType Directory -Force (Split-Path -Parent ([IO.Path]::GetFullPath($OutFile))) | Out-Null
 [IO.File]::WriteAllBytes($OutFile, $plain)
-
-# A real SQLite database starts with this header
-$header = [Text.Encoding]::ASCII.GetString($plain, 0, [Math]::Min(15, $plain.Length))
-if ($header -ne 'SQLite format 3') { Write-Host "Decrypted, but the result isn't a SQLite database." -ForegroundColor Red; exit 1 }
 Write-Host ("Restored {0} ({1:N0} KB) to {2}" -f (Split-Path $File -Leaf), ($plain.Length / 1KB), $OutFile) -ForegroundColor Green
 Write-Host "Next: check it with the product's restore-drill.ps1 -Backup `"$OutFile`", then follow the restore steps in its runbook."
 exit 0

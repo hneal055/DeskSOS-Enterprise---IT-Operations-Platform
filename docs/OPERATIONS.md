@@ -237,7 +237,7 @@ Once a week a copy also goes to `...\weekly\`. The newest **14 daily** and **8 w
 **Set the passphrase (once).** Run this in PowerShell 7 as the Administrator user. It creates a random 32-character passphrase, shows it once and saves it:
 
 ```powershell
-$p = -join ((48..57) + (65..90) + (97..122) | Get-Random -Count 32 | ForEach-Object { [char]$_ })
+$p = [Security.Cryptography.RandomNumberGenerator]::GetString('ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789', 32)
 [Environment]::SetEnvironmentVariable('DESKSOS_BACKUP_PASSPHRASE', $p, 'User')
 Write-Host "Save this in your password manager now: $p"
 ```

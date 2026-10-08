@@ -30,7 +30,7 @@
     pwsh .\offsite-backup.ps1 -Destination D:\Backups\DeskSOS     # another folder
 #>
 param(
-    [string]$Destination = (Join-Path ([Environment]::GetEnvironmentVariable('OneDrive', 'User') ?? $env:OneDrive ?? '') 'DeskSOS-Backups'),
+    [string]$Destination,   # default: <OneDrive>\DeskSOS-Backups (resolved below)
     [hashtable]$Sources = @{
         Enterprise = (Join-Path $PSScriptRoot 'backups\production')
         Desktop    = 'C:\Projects\DESKSOS-Desktop\backend\data\backups'
@@ -44,7 +44,6 @@ $ErrorActionPreference = 'Stop'
 $Magic = [Text.Encoding]::ASCII.GetBytes('DSOSBK1')   # file format marker + version
 $Iterations = 600000
 
-New-Item -ItemType Directory -Force (Split-Path $LogFile) | Out-Null
 function Write-Log([string]$m) { $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $m"; Add-Content $LogFile $line; Write-Host $line }
 
 function Send-Failure([string]$why) {
@@ -88,45 +87,63 @@ function Unprotect-Bytes([byte[]]$data, [string]$pass) {
 # The restore script dot-sources this file for the two functions above
 if ($MyInvocation.InvocationName -eq '.') { return }
 
-$pass = $env:DESKSOS_BACKUP_PASSPHRASE ?? [Environment]::GetEnvironmentVariable('DESKSOS_BACKUP_PASSPHRASE', 'User')
-if (-not $pass) { Fail "DESKSOS_BACKUP_PASSPHRASE isn't set (docs/OPERATIONS.md section 5.4)" }
-if ($pass.Length -lt 16) { Fail "DESKSOS_BACKUP_PASSPHRASE is shorter than 16 characters" }
-if (-not $Destination -or $Destination -eq 'DeskSOS-Backups') { Fail "no destination: OneDrive isn't set up for this user (pass -Destination)" }
+New-Item -ItemType Directory -Force (Split-Path $LogFile) | Out-Null
 
-Write-Log "Off-machine backup to $Destination"
-$done = 0
-foreach ($product in $Sources.Keys | Sort-Object) {
-    $src = Get-ChildItem $Sources[$product] -Filter '*.db' -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    if (-not $src) { Fail "${product}: no backup found in $($Sources[$product])" }
-    $age = (Get-Date) - $src.LastWriteTime
-    if ($age.TotalHours -gt 36) { Fail "${product}: newest backup $($src.Name) is $([int]$age.TotalHours) hours old; the nightly backup isn't running" }
+# Never leave a half-written copy under a final name
+function Publish-File([string]$tmp, [string]$final) { Move-Item $tmp $final -Force }
 
-    $plain = [IO.File]::ReadAllBytes($src.FullName)
-    $enc = Protect-Bytes $plain $pass
-    # Prove the copy restores before trusting it
-    $back = Unprotect-Bytes $enc $pass
-    if (-not (Test-SameBytes $back $plain)) { Fail "${product}: encrypted copy didn't decrypt to the original" }
-
-    $daily = Join-Path $Destination "$product\daily"; $weekly = Join-Path $Destination "$product\weekly"
-    New-Item -ItemType Directory -Force $daily, $weekly | Out-Null
-    $name = "$($src.BaseName).db.enc"
-    $tmp = Join-Path $daily "$name.partial"
-    [IO.File]::WriteAllBytes($tmp, $enc)
-    Move-Item $tmp (Join-Path $daily $name) -Force   # never leave a half-written copy under the final name
-
-    # Weekly: when the newest weekly copy is 7 or more days old (or there's none)
-    $lastWeekly = Get-ChildItem $weekly -Filter '*.db.enc' -File | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    $weeklyNote = ''
-    if (-not $lastWeekly -or ((Get-Date) - $lastWeekly.LastWriteTime).TotalDays -ge 7) {
-        Copy-Item (Join-Path $daily $name) (Join-Path $weekly $name) -Force
-        $weeklyNote = ', weekly copy'
+$partials = [Collections.Generic.List[string]]::new()
+try {
+    $pass = $env:DESKSOS_BACKUP_PASSPHRASE ?? [Environment]::GetEnvironmentVariable('DESKSOS_BACKUP_PASSPHRASE', 'User')
+    if (-not $pass) { Fail "DESKSOS_BACKUP_PASSPHRASE isn't set (docs/OPERATIONS.md section 5.4)" }
+    if ($pass.Length -lt 16) { Fail "DESKSOS_BACKUP_PASSPHRASE is shorter than 16 characters" }
+    if (-not $Destination) {
+        $oneDrive = [Environment]::GetEnvironmentVariable('OneDrive', 'User') ?? $env:OneDrive
+        if (-not $oneDrive) { Fail "no destination: OneDrive isn't set up for this user (pass -Destination)" }
+        $Destination = Join-Path $oneDrive 'DeskSOS-Backups'
     }
-    foreach ($set in @(@($daily, $KeepDaily), @($weekly, $KeepWeekly))) {
-        Get-ChildItem $set[0] -Filter '*.db.enc' -File | Sort-Object LastWriteTime -Descending | Select-Object -Skip $set[1] | Remove-Item -Force
+
+    Write-Log "Off-machine backup to $Destination"
+    $done = 0
+    foreach ($product in $Sources.Keys | Sort-Object) {
+        $src = Get-ChildItem $Sources[$product] -Filter '*.db' -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if (-not $src) { Fail "${product}: no backup found in $($Sources[$product])" }
+        $age = (Get-Date) - $src.LastWriteTime
+        if ($age.TotalHours -gt 36) { Fail "${product}: newest backup $($src.Name) is $([int]$age.TotalHours) hours old; the nightly backup isn't running" }
+
+        $plain = [IO.File]::ReadAllBytes($src.FullName)
+        $enc = Protect-Bytes $plain $pass
+        # Prove the copy restores before trusting it
+        $back = Unprotect-Bytes $enc $pass
+        if (-not (Test-SameBytes $back $plain)) { Fail "${product}: encrypted copy didn't decrypt to the original" }
+
+        $daily = Join-Path $Destination "$product\daily"; $weekly = Join-Path $Destination "$product\weekly"
+        New-Item -ItemType Directory -Force $daily, $weekly | Out-Null
+        $name = "$($src.BaseName).db.enc"
+        $tmp = Join-Path $daily "$name.partial"; $partials.Add($tmp)
+        [IO.File]::WriteAllBytes($tmp, $enc)
+        Publish-File $tmp (Join-Path $daily $name)
+
+        # Weekly: when the newest weekly copy is 7 or more days old (or there's none)
+        $lastWeekly = Get-ChildItem $weekly -Filter '*.db.enc' -File | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        $weeklyNote = ''
+        if (-not $lastWeekly -or ((Get-Date) - $lastWeekly.LastWriteTime).TotalDays -ge 7) {
+            $wtmp = Join-Path $weekly "$name.partial"; $partials.Add($wtmp)
+            Copy-Item (Join-Path $daily $name) $wtmp -Force
+            Publish-File $wtmp (Join-Path $weekly $name)
+            $weeklyNote = ', weekly copy'
+        }
+        foreach ($set in @(@($daily, $KeepDaily), @($weekly, $KeepWeekly))) {
+            Get-ChildItem $set[0] -Filter '*.db.enc' -File | Sort-Object LastWriteTime -Descending | Select-Object -Skip $set[1] | Remove-Item -Force
+        }
+        $counts = '{0} daily, {1} weekly kept' -f @(Get-ChildItem $daily -Filter '*.db.enc').Count, @(Get-ChildItem $weekly -Filter '*.db.enc').Count
+        Write-Log ("  {0}: {1} -> {2} ({3:N0} KB, encrypted and verified{4}; {5})" -f $product, $src.Name, $name, ($enc.Length / 1KB), $weeklyNote, $counts)
+        $done++
     }
-    $counts = '{0} daily, {1} weekly kept' -f @(Get-ChildItem $daily -Filter '*.db.enc').Count, @(Get-ChildItem $weekly -Filter '*.db.enc').Count
-    Write-Log ("  {0}: {1} -> {2} ({3:N0} KB, encrypted and verified{4}; {5})" -f $product, $src.Name, $name, ($enc.Length / 1KB), $weeklyNote, $counts)
-    $done++
+} catch {
+    # Anything unexpected (unreadable source, OneDrive folder not writable, ...) still alerts
+    foreach ($p in $partials) { Remove-Item $p -Force -ErrorAction SilentlyContinue }
+    Fail "unexpected error: $($_.Exception.Message)"
 }
 Write-Log "OK: $done product(s) copied"
 exit 0   # explicit, so the scheduled task records success (result 0)
