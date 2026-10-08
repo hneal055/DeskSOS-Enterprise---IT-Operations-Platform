@@ -34,6 +34,7 @@ Related documents:
 | DeskSOS Enterprise Startup | Boot + 3 min | `start-production.ps1 -SkipBuild` | `backend\server\logs\startup.log` |
 | DeskSOS Enterprise Daily Backup | 02:30 | Verified backup to `backups\production` (14 kept) | `backend\server\logs\backup.log` |
 | DeskSOS Enterprise Health Monitor | Every 5 min | Checks `/health` and the certificate, alerts on change, restarts Enterprise if it stays down (§3.1) | `backend\server\logs\monitor.log` |
+| DeskSOS Enterprise Offsite Backup | 03:15 | Encrypted copy of **both** products' newest backups to OneDrive (§5.4) | `backend\server\logs\offsite.log` |
 
 **Firewall:** the rule "DeskSOS Enterprise (HTTPS 5543, LAN only)" allows TCP 5543 from the local subnet only.
 
@@ -54,6 +55,7 @@ pm2 status                                                    # desksos-enterpri
 Invoke-RestMethod https://FORD-DC01:5543/health               # status ok, database connected
 Get-Content backend\server\logs\monitor.log -Tail 5           # any DOWN / Recovered lines
 Get-Content backend\server\logs\backup.log -Tail 3            # last night's backup: "Verified: integrity ok"
+Get-Content backend\server\logs\offsite.log -Tail 3           # last night's off-machine copy: "OK: 2 product(s) copied"
 ```
 
 **Weekly:**
@@ -62,7 +64,7 @@ Get-Content backend\server\logs\backup.log -Tail 3            # last night's bac
 Get-ScheduledTask "DeskSOS Enterprise *" | Get-ScheduledTaskInfo | Format-Table TaskName, LastRunTime, LastTaskResult
 ```
 
-Backup and Health Monitor should show `LastTaskResult` **0**. Startup shows its result from the last boot.
+Backup, Offsite Backup and Health Monitor should show `LastTaskResult` **0**. Startup shows its result from the last boot.
 
 Also check that `backups\production` has a file from each recent night.
 
@@ -161,7 +163,7 @@ pwsh backend\server\scripts\backup-prod.ps1
 Each backup is one self-contained `.db` file in `backups\production`, checked with `integrity_check`. The newest 14 are kept.
 
 - **Not included:** the secrets file `backend\server\.env.production`. Keep a copy of its values in a password manager.
-- **Off-machine copy:** until task 3.2 is done, the backups sit on the same disk as the database. A disk failure would lose both.
+- **Off-machine copy:** every night at 03:15 an encrypted copy goes to OneDrive (§5.4).
 
 ### 5.2 Restore production from a backup
 
@@ -209,6 +211,57 @@ The drill:
 4. cleans up
 
 The result is appended to `backend\server\logs\restore-drill.log`, ending in `PASS` or `FAIL`. Record the date and result in the plan's progress log.
+
+### 5.4 Off-machine copies (OneDrive, encrypted)
+
+The nightly backups sit on the same disk as the databases. A disk failure, theft or ransomware would lose both. So every night at 03:15, `offsite-backup.ps1` (in the repository root) does the following for **both** products:
+
+1. takes the newest backup: Enterprise's from `backups\production`, and Desktop's from `C:\Projects\DESKSOS-Desktop\backend\data\backups`
+2. encrypts it with AES-256-GCM, using a key derived from the backup passphrase
+3. decrypts it again and checks it matches the original
+4. saves it as `<backup>.db.enc` in `OneDrive\DeskSOS-Backups\<Enterprise|Desktop>\daily\`
+
+Once a week a copy also goes to `...\weekly\`. The newest **14 daily** and **8 weekly** copies are kept. OneDrive then uploads the folder.
+
+**The copies are encrypted** because OneDrive is a personal Microsoft account. Without the passphrase they can't be read by anyone, including you. So:
+
+- **Keep the passphrase in a password manager.** If the PC is lost, the passphrase is the only way to use the copies.
+- **The passphrase is not in the repository.** It lives in the Windows user variable `DESKSOS_BACKUP_PASSPHRASE`.
+
+**It fails loudly.** The task exits with an error, and posts to Discord, if any of these is true:
+
+- the passphrase isn't set
+- OneDrive isn't set up for this user
+- either product's newest backup is more than 36 hours old, which means its nightly backup has stopped
+
+**Set the passphrase (once).** Run this in PowerShell 7 as the Administrator user. It creates a random 32-character passphrase, shows it once and saves it:
+
+```powershell
+$p = -join ((48..57) + (65..90) + (97..122) | Get-Random -Count 32 | ForEach-Object { [char]$_ })
+[Environment]::SetEnvironmentVariable('DESKSOS_BACKUP_PASSPHRASE', $p, 'User')
+Write-Host "Save this in your password manager now: $p"
+```
+
+**Take a copy now:**
+
+```powershell
+Start-ScheduledTask "DeskSOS Enterprise Offsite Backup"
+Get-Content backend\server\logs\offsite.log -Tail 4
+```
+
+**Restore from a copy.** This works on any PC with PowerShell 7 and this repository, for example a replacement for a lost server:
+
+1. Download the `.db.enc` file from OneDrive. Then decrypt it; you'll be asked for the passphrase if the variable isn't set on that PC:
+
+   ```powershell
+   pwsh .\offsite-restore.ps1 -File <file>.db.enc -OutFile C:\Restore\enterprise.db
+   ```
+
+   A wrong passphrase or a damaged file is refused, and nothing is written.
+2. Check the result with that product's restore drill, for example `pwsh backend\server\scripts\restore-drill.ps1 -Backup C:\Restore\enterprise.db`.
+3. Put it back with §5.2 (Enterprise) or Desktop's runbook §4.4.
+
+**Uploads need OneDrive running.** The task writes the files whether or not anyone is signed in, but OneDrive only uploads them while the Administrator user is signed in. Now and then, check at onedrive.live.com that `DeskSOS-Backups` has recent files.
 
 ---
 

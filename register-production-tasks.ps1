@@ -2,12 +2,14 @@
 <#
 .SYNOPSIS
     Registers DeskSOS Enterprise production's scheduled tasks and firewall rule
-    (readiness plan tasks 2.5 and 2.6, plus the daily backup from 3.1).
+    (readiness plan tasks 2.5 and 2.6, plus the daily backup from 3.1 and the
+    off-machine copy from 3.2).
 
 .DESCRIPTION
       DeskSOS Enterprise Startup       at boot +3 min -> start-production.ps1 -SkipBuild
       DeskSOS Enterprise Daily Backup  daily at 02:30 -> backend\server\scripts\backup-prod.ps1
       DeskSOS Enterprise Health Monitor every 5 minutes -> backend\server\scripts\monitor-health.ps1
+      DeskSOS Enterprise Offsite Backup daily at 03:15 -> offsite-backup.ps1 (both products, to OneDrive)
       Firewall: "DeskSOS Enterprise (HTTPS 5543, LAN only)" inbound TCP 5543
                 from the local subnet only, on every network profile
 
@@ -16,7 +18,8 @@
     earlier EPERM / orphaned-daemon problem), so Enterprise waits until Desktop
     has started.
 
-    02:30: offset from Desktop's 02:00 backup.
+    02:30: offset from Desktop's 02:00 backup. 03:15: after both nightly
+    backups, so the off-machine copy takes that night's files.
 
     Tasks run as the current user whether or not anyone is signed in (S4U,
     highest privileges, like Desktop's) using the MSI install of PowerShell 7;
@@ -34,6 +37,7 @@ param(
     [switch]$DryRun,
     [switch]$Unregister,
     [string]$BackupTime = "02:30",
+    [string]$OffsiteTime = "03:15",
     [int]$Port = 5543
 )
 
@@ -76,7 +80,7 @@ if (-not (Test-Path $pwsh)) {
     exit 1
 }
 
-foreach ($f in (Join-Path $Root 'start-production.ps1'), (Join-Path $Server 'scripts\backup-prod.ps1'), (Join-Path $Server 'scripts\monitor-health.ps1')) {
+foreach ($f in (Join-Path $Root 'start-production.ps1'), (Join-Path $Server 'scripts\backup-prod.ps1'), (Join-Path $Server 'scripts\monitor-health.ps1'), (Join-Path $Root 'offsite-backup.ps1')) {
     if (-not (Test-Path $f)) { Write-Host "Missing: $f" -ForegroundColor Red; exit 1 }
 }
 
@@ -104,6 +108,13 @@ $specs = @(
         Trigger     = 'every5min'
         Summary     = "every 5 min -> $HealthUrl (log: backend\server\logs\monitor.log)"
     }
+    @{
+        Name        = "$Prefix Offsite Backup"
+        Description = "Encrypted off-machine copy of both DeskSOS products' newest nightly backups, to OneDrive"
+        Arguments   = "-NoProfile -File `"$Root\offsite-backup.ps1`""
+        Trigger     = 'offsite'
+        Summary     = "daily at $OffsiteTime -> OneDrive\DeskSOS-Backups (log: backend\server\logs\offsite.log)"
+    }
 )
 
 Write-Host "Tasks will use: $pwsh"
@@ -123,6 +134,7 @@ foreach ($s in $specs) {
     $trigger = switch ($s.Trigger) {
         'boot' { $t = New-ScheduledTaskTrigger -AtStartup; $t.Delay = 'PT3M'; $t }
         'daily' { New-ScheduledTaskTrigger -Daily -At $BackupTime }
+        'offsite' { New-ScheduledTaskTrigger -Daily -At $OffsiteTime }
         'every5min' { New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 5) }
     }
     $action = New-ScheduledTaskAction -Execute $pwsh -Argument $s.Arguments -WorkingDirectory $Root
