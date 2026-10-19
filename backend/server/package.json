@@ -21,7 +21,7 @@
     "express": "^4.22.3",
     "express-rate-limit": "^7.1.5",
     "express-validator": "^7.0.1",
-    "helmet": "^7.1.0",
+    "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.2",
     "socket.io": "^4.5.4",
     "winston": "^3.11.0",
